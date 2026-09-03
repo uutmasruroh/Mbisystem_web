@@ -902,35 +902,27 @@ function editProd(index) {
     let item = prodData[index];
     if (!item) return;
 
-    // Pengisian form dengan pengecekan aman (?.value)
-    const setVal = (id, val) => {
-        const el = document.getElementById(id);
-        if (el) el.value = val !== undefined && val !== null ? val : '';
-    };
+    document.getElementById('prodEditIndex').value = index;
+    document.getElementById('prodDate').value = item.date;
+    document.getElementById('prodShift').value = item.shift;
+    document.getElementById('prodPic').value = item.pic;
 
-    setVal('prodEditIndex', index);
-    setVal('prodDate', item.date);
-    setVal('prodShift', item.shift);
-    setVal('prodPic', item.pic);
-
-    if (item.customer && !masterData[item.customer]) {
+    if (!masterData[item.customer]) {
         saveCustomToMasterData(item.customer, item.part, item.cromating);
     }
 
-    setVal('prodCustomerSelect', item.customer);
-    if (typeof onCustomerChange === 'function') {
-        onCustomerChange('prodCustomerSelect', 'prodPartSelect', 'prodCromating');
-    }
+    document.getElementById('prodCustomerSelect').value = item.customer;
+    onCustomerChange('prodCustomerSelect', 'prodPartSelect', 'prodCromating');
 
-    setVal('prodPartSelect', item.part);
-    setVal('prodCromating', item.cromating);
-    setVal('prodQty', item.qty);
-    setVal('prodBarrel', item.barrel);
-    setVal('prodAmpr', item.ampr);
-    setVal('prodTimeIn', item.timeIn);
-    setVal('prodTimeOut', item.timeOut);
-    setVal('prodAdditive', item.additive); // Aman meskipun input prodAdditive tidak ada di HTML
-    setVal('prodNote', item.note);
+    document.getElementById('prodPartSelect').value = item.part;
+    document.getElementById('prodCromating').value = item.cromating;
+    document.getElementById('prodQty').value = item.qty;
+    document.getElementById('prodBarrel').value = item.barrel;
+    document.getElementById('prodAmpr').value = item.ampr;
+    document.getElementById('prodTimeIn').value = item.timeIn;
+    document.getElementById('prodTimeOut').value = item.timeOut;
+    document.getElementById('prodAdditive').value = item.additive;
+    document.getElementById('prodNote').value = item.note;
 
     // FOTO PRODUKSI SAAT EDIT
     const imgPreview = document.getElementById('prodPhotoImg');
@@ -953,14 +945,12 @@ function editProd(index) {
         }
     }
 
-    const editBadge = document.getElementById('prodEditBadge');
-    if (editBadge) editBadge.classList.remove('hidden');
-
-    const btnSaveText = document.getElementById('btnSaveProdText');
-    if (btnSaveText) btnSaveText.textContent = "Perbarui Data Produksi";
+    document.getElementById('prodEditBadge').classList.remove('hidden');
+    document.getElementById('btnSaveProdText').textContent = "Perbarui Data Produksi";
 
     window.scrollTo({ top: 0, behavior: 'smooth' });
 }
+
 // ==========================================
 // RESET FORM PRODUKSI
 // ==========================================
