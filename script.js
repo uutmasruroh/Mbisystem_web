@@ -21,9 +21,8 @@ async function kirimLaporan(event) {
     alert(result.message);
 
     if (response.ok) {
-    event.target.reset(); // Mengosongkan isian form
-  loadLaporan();        // <-- Tambahkan baris ini agar tabel langsung diperbarui
-}
+      event.target.reset(); // Mengosongkan isian form setelah sukses
+    }
   } catch (error) {
     console.error('Gagal mengirim data:', error);
     alert('Terjadi kesalahan saat menghubungkan ke server.');
@@ -225,27 +224,15 @@ const masterData = {
         { part: "H37 LONG NUT", spec: "WHITE" }
     ]
 };
+const monthNamesIndo = ["januari", "februari", "maret", "april", "mei", "juni", "juli", "agustus", "september", "oktober", "november", "desember"];
+const monthNamesEng = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
 
-const monthNamesIndo = [
-    "januari", "februari", "maret", "april", "mei", "juni",
-    "juli", "agustus", "september", "oktober", "november", "desember"
-];
-
-const monthNamesEng = [
-    "january", "february", "march", "april", "may", "june",
-    "july", "august", "september", "october", "november", "december"
-];
-
-// ==========================================
-// HELPER FILE / FOTO
-// ==========================================
+let globalQcData = [];
+let globalProdData = [];
 
 function fileToBase64(file) {
     return new Promise((resolve, reject) => {
-        if (!file) {
-            resolve('');
-            return;
-        }
+        if (!file) return resolve('');
         const reader = new FileReader();
         reader.readAsDataURL(file);
         reader.onload = () => resolve(reader.result);
@@ -253,58 +240,17 @@ function fileToBase64(file) {
     });
 }
 
-// ==========================================
-// PREVIEW GAMBAR UPLOAD
-// ==========================================
-
-function previewImage(input, imgId, containerId) {
-    const previewContainer = document.getElementById(containerId);
-    const imgElement = document.getElementById(imgId);
-
-    if (input.files && input.files[0]) {
-        const reader = new FileReader();
-        reader.onload = function(e) {
-            imgElement.src = e.target.result;
-            previewContainer.classList.remove('hidden');
-        };
-        reader.readAsDataURL(input.files[0]);
-    } else {
-        imgElement.src = '';
-        previewContainer.classList.add('hidden');
-    }
-}
-
-// ==========================================
-// SIMPAN CUSTOMER / PART BARU
-// ==========================================
-
 function saveCustomToMasterData(customer, part, spec) {
     if (!customer || !part) return;
-
-    if (!masterData[customer]) {
-        masterData[customer] = [];
-    }
-
-    const exists = masterData[customer].some(
-        item => item.part.toLowerCase() === part.toLowerCase()
-    );
-
-    if (!exists) {
-        masterData[customer].push({
-            part: part,
-            spec: spec || '-'
-        });
-    }
-
+    if (!masterData[customer]) masterData[customer] = [];
+    const exists = masterData[customer].some(item => item.part.toLowerCase() === part.toLowerCase());
+    if (!exists) masterData[customer].push({ part, spec: spec || '-' });
     loadCustomerOptions('qcCustomerSelect');
     loadCustomerOptions('prodCustomerSelect');
 }
 
-// ==========================================
-// 2. INISIALISASI DASBOR
-// ==========================================
-
-document.addEventListener("DOMContentLoaded", () => {
+// INISIALISASI
+document.addEventListener("DOMContentLoaded", async () => {
     loadCustomerOptions('qcCustomerSelect');
     loadCustomerOptions('prodCustomerSelect');
 
@@ -316,94 +262,177 @@ document.addEventListener("DOMContentLoaded", () => {
         qcDateInput.value = today;
         qcDateInput.addEventListener('change', renderQcTable);
     }
-
     if (prodDateInput) {
         prodDateInput.value = today;
         prodDateInput.addEventListener('change', renderProdTable);
     }
 
-    renderQcTable();
-    renderProdTable();
+    await fetchQcData();
+    await fetchProdData();
+
+    // Event Listener Form QC
+    const qcForm = document.getElementById('qcForm');
+    if (qcForm) {
+        qcForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            let customer = document.getElementById('qcCustomerSelect').value === "CUSTOM_NEW" 
+                ? document.getElementById('qcCustomerCustom').value 
+                : document.getElementById('qcCustomerSelect').value;
+
+            let part = document.getElementById('qcPartSelect').value === "CUSTOM_NEW_PART" 
+                ? document.getElementById('qcPartCustom').value 
+                : document.getElementById('qcPartSelect').value;
+
+            const spec = document.getElementById('qcSpec').value;
+            saveCustomToMasterData(customer, part, spec);
+
+            let photoBase64 = document.getElementById('qcPhotoBase64')?.value || '';
+            const photoInput = document.getElementById('qcPhoto');
+            if (!photoBase64 && photoInput && photoInput.files[0]) {
+                photoBase64 = await fileToBase64(photoInput.files[0]);
+            }
+
+            const editId = document.getElementById('qcEditIndex').value;
+
+            const payload = {
+                date: document.getElementById('qcDate')?.value || '',
+                pic: document.getElementById('qcPic')?.value || '',
+                customer: customer,
+                part: part,
+                spec: spec,
+                okPcs: parseInt(document.getElementById('qcOkPcs')?.value) || 0,
+                ngPcs: parseInt(document.getElementById('qcNgPcs')?.value) || 0,
+                qtyKg: document.getElementById('qcQtyKg')?.value || '0',
+                note: document.getElementById('qcNote')?.value || '',
+                photo: photoBase64
+            };
+
+            if (editId !== "-1") {
+                await fetch(`/api/qc/${editId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+            } else {
+                await fetch('/api/qc', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+            }
+
+            resetQcForm();
+            await fetchQcData();
+        });
+    }
+
+    // Event Listener Form Produksi
+    const prodForm = document.getElementById('prodForm');
+    if (prodForm) {
+        prodForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            let customer = document.getElementById('prodCustomerSelect')?.value || '';
+            let part = document.getElementById('prodPartSelect')?.value || '';
+
+            if (customer === "CUSTOM_NEW") customer = document.getElementById('prodCustomerCustom')?.value || '';
+            if (part === "CUSTOM_NEW_PART") part = document.getElementById('prodPartCustom')?.value || '';
+
+            let photoBase64 = document.getElementById('prodPhotoBase64')?.value || '';
+            const photoInput = document.getElementById('prodPhoto');
+            if (!photoBase64 && photoInput && photoInput.files[0]) {
+                photoBase64 = await fileToBase64(photoInput.files[0]);
+            }
+
+            const editId = document.getElementById('prodEditIndex').value;
+
+            const payload = {
+                date: document.getElementById('prodDate')?.value,
+                shift: document.getElementById('prodShift')?.value,
+                pic: document.getElementById('prodPic')?.value,
+                customer: customer,
+                part: part,
+                cromating: document.getElementById('prodCromating')?.value || '',
+                qty: document.getElementById('prodQty')?.value || '0',
+                barrel: document.getElementById('prodBarrel')?.value || '1',
+                ampr: document.getElementById('prodAmpr')?.value || '0',
+                timeIn: document.getElementById('prodTimeIn')?.value || '',
+                timeOut: document.getElementById('prodTimeOut')?.value || '',
+                additive: document.getElementById('prodAdditive')?.value || '',
+                note: document.getElementById('prodNote')?.value || '',
+                photo: photoBase64
+            };
+
+            if (editId !== "-1") {
+                await fetch(`/api/produksi/${editId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+            } else {
+                await fetch('/api/produksi', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+            }
+
+            resetProdForm();
+            await fetchProdData();
+        });
+    }
 });
 
-// ==========================================
-// 3. NAVIGASI TAB UTAMA
-// ==========================================
+// FETCH DATA DARI SERVER
+async function fetchQcData() {
+    try {
+        const res = await fetch('/api/qc');
+        globalQcData = await res.json();
+        renderQcTable();
+    } catch (err) { console.error('Fetch QC Error:', err); }
+}
 
+async function fetchProdData() {
+    try {
+        const res = await fetch('/api/produksi');
+        globalProdData = await res.json();
+        renderProdTable();
+    } catch (err) { console.error('Fetch Prod Error:', err); }
+}
+
+// NAVIGASI TAB
 function switchTab(tabName) {
     const qcView = document.getElementById('qcView');
     const produksiView = document.getElementById('produksiView');
-    const navQcBtnMobile = document.getElementById('navQcBtnMobile');
-    const navProdBtnMobile = document.getElementById('navProdBtnMobile');
-    const navQcBtnDesktop = document.getElementById('navQcBtnDesktop');
-    const navProdBtnDesktop = document.getElementById('navProdBtnDesktop');
-
     if (tabName === 'qc') {
-        if (qcView) qcView.classList.remove('hidden');
-        if (produksiView) produksiView.classList.add('hidden');
-
-        if (navQcBtnDesktop && navProdBtnDesktop) {
-            navQcBtnDesktop.className = "px-4 py-2 rounded-xl font-bold text-xs transition-all bg-red-600 text-white shadow-md";
-            navProdBtnDesktop.className = "px-4 py-2 rounded-xl font-bold text-xs transition-all text-slate-300 hover:text-white";
-        }
-
-        if (navQcBtnMobile && navProdBtnMobile) {
-            navQcBtnMobile.className = "w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl font-bold text-xs transition-all bg-red-600 text-white text-left shadow-md";
-            navProdBtnMobile.className = "w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl font-bold text-xs transition-all text-slate-300 hover:bg-white/10 hover:text-white text-left";
-        }
-
+        qcView?.classList.remove('hidden');
+        produksiView?.classList.add('hidden');
         renderQcTable();
     } else {
-        if (produksiView) produksiView.classList.remove('hidden');
-        if (qcView) qcView.classList.add('hidden');
-
-        if (navQcBtnDesktop && navProdBtnDesktop) {
-            navQcBtnDesktop.className = "px-4 py-2 rounded-xl font-bold text-xs transition-all text-slate-300 hover:text-white";
-            navProdBtnDesktop.className = "px-4 py-2 rounded-xl font-bold text-xs transition-all bg-red-600 text-white shadow-md";
-        }
-
-        if (navQcBtnMobile && navProdBtnMobile) {
-            navQcBtnMobile.className = "w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl font-bold text-xs transition-all text-slate-300 hover:bg-white/10 hover:text-white text-left";
-            navProdBtnMobile.className = "w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl font-bold text-xs transition-all bg-red-600 text-white text-left shadow-md";
-        }
-
+        produksiView?.classList.remove('hidden');
+        qcView?.classList.add('hidden');
         renderProdTable();
     }
 }
 
 function toggleMobileMenu() {
-    const mobileMenu = document.getElementById('mobileMenu');
-    if (mobileMenu) {
-        mobileMenu.classList.toggle('hidden');
-    }
+    document.getElementById('mobileMenu')?.classList.toggle('hidden');
 }
 
-// ==========================================
-// 4. DROPDOWN DINAMIS
-// ==========================================
-
+// DROPDOWN
 function loadCustomerOptions(selectId) {
     const select = document.getElementById(selectId);
     if (!select) return;
-
-    const currentVal = select.value;
     select.innerHTML = '<option value=""> Pilih PT / Customer </option>';
-
     for (let customer in masterData) {
         let opt = document.createElement('option');
         opt.value = customer;
         opt.textContent = customer;
         select.appendChild(opt);
     }
-
     let customOpt = document.createElement('option');
     customOpt.value = "CUSTOM_NEW";
     customOpt.textContent = "+ Tambah Customer Baru...";
     select.appendChild(customOpt);
-
-    if (currentVal) {
-        select.value = currentVal;
-    }
 }
 
 function onCustomerChange(custSelectId, partSelectId, specInputId) {
@@ -415,15 +444,9 @@ function onCustomerChange(custSelectId, partSelectId, specInputId) {
     document.getElementById(specInputId).value = '';
 
     if (custSelect.value === "CUSTOM_NEW") {
-        if (customCustContainer) customCustContainer.classList.remove('hidden');
-
-        let customPartOpt = document.createElement('option');
-        customPartOpt.value = "CUSTOM_NEW_PART";
-        customPartOpt.textContent = "+ Tambah Part Baru...";
-        partSelect.appendChild(customPartOpt);
+        customCustContainer?.classList.remove('hidden');
     } else {
-        if (customCustContainer) customCustContainer.classList.add('hidden');
-
+        customCustContainer?.classList.add('hidden');
         const selectedCustomer = custSelect.value;
         if (masterData[selectedCustomer]) {
             masterData[selectedCustomer].forEach(item => {
@@ -433,12 +456,11 @@ function onCustomerChange(custSelectId, partSelectId, specInputId) {
                 partSelect.appendChild(opt);
             });
         }
-
-        let customPartOpt = document.createElement('option');
-        customPartOpt.value = "CUSTOM_NEW_PART";
-        customPartOpt.textContent = "+ Tambah Part Baru...";
-        partSelect.appendChild(customPartOpt);
     }
+    let customPartOpt = document.createElement('option');
+    customPartOpt.value = "CUSTOM_NEW_PART";
+    customPartOpt.textContent = "+ Tambah Part Baru...";
+    partSelect.appendChild(customPartOpt);
 }
 
 function onPartChange(custSelectId, partSelectId, specInputId) {
@@ -448,486 +470,130 @@ function onPartChange(custSelectId, partSelectId, specInputId) {
     const customPartContainer = document.getElementById(partSelectId.replace('Select', 'CustomContainer'));
 
     if (partSelect.value === "CUSTOM_NEW_PART") {
-        if (customPartContainer) customPartContainer.classList.remove('hidden');
+        customPartContainer?.classList.remove('hidden');
         specInput.value = '';
     } else {
-        if (customPartContainer) customPartContainer.classList.add('hidden');
-
-        const customer = custSelect.value;
-        const part = partSelect.value;
-
-        if (masterData[customer]) {
-            const found = masterData[customer].find(item => item.part === part);
-            if (found) {
-                specInput.value = found.spec;
-            }
-        }
+        customPartContainer?.classList.add('hidden');
+        const found = masterData[custSelect.value]?.find(item => item.part === partSelect.value);
+        if (found) specInput.value = found.spec;
     }
 }
 
-// ==========================================
-// CONFIG & GLOBAL STATE QC PT MEGUMI
-// ==========================================
-const API_QC_URL = '/api/qc';
-let currentQcData = []; // Menyimpan data sementara dari MongoDB untuk fungsi Edit
-
-document.addEventListener('DOMContentLoaded', async function () {
-    // 1. Load data dari MongoDB saat halaman dibuka
-    await renderQcTable();
-
-    // 2. Pasang Listener pada Input Tanggal untuk filter harian
-    const dateInput = document.getElementById('qcDate') || document.getElementById('tanggalQc');
-    if (dateInput) {
-        dateInput.addEventListener('change', renderQcTable);
-    }
-
-    // 3. Listener Submit Form QC
-    const qcForm = document.getElementById('qcForm');
-    if (qcForm) {
-        qcForm.addEventListener('submit', async function(e) {
-            e.preventDefault();
-
-            console.log("SUBMIT QC BERHASIL DIPANGGIL");
-
-            // Customer & Part Handling
-            let customer = document.getElementById('qcCustomerSelect')?.value;
-            if (customer === "CUSTOM_NEW") {
-                customer = document.getElementById('qcCustomerCustom')?.value;
-            }
-
-            let part = document.getElementById('qcPartSelect')?.value;
-            if (part === "CUSTOM_NEW_PART") {
-                part = document.getElementById('qcPartCustom')?.value;
-            }
-
-            const spec = document.getElementById('qcSpec')?.value || '';
-            if (typeof saveCustomToMasterData === 'function') {
-                saveCustomToMasterData(customer, part, spec);
-            }
-
-            // Processing Foto QC
-            let photoBase64 = document.getElementById('qcPhotoBase64')?.value || '';
-            const photoInput = document.getElementById('qcPhoto');
-
-            if (!photoBase64 && photoInput && photoInput.files[0]) {
-                photoBase64 = await fileToBase64(photoInput.files[0]);
-            }
-
-            const editId = document.getElementById('qcEditIndex')?.value || "-1";
-
-            // Jika dalam mode Edit dan foto tidak diubah, gunakan foto lama
-            if (editId !== "-1" && !photoBase64) {
-                const existingItem = currentQcData.find(item => String(item._id || item.id) === String(editId));
-                if (existingItem) photoBase64 = existingItem.photo || '';
-            }
-
-            const okInput = document.getElementById('qcOkPCS') || document.getElementById('qcOkPcs');
-            const ngInput = document.getElementById('qcNgPCS') || document.getElementById('qcNgPcs');
-
-            const payloadData = {
-                action: editId !== "-1" ? 'update' : 'create',
-                _id: editId !== "-1" ? editId : undefined,
-                date: document.getElementById('qcDate')?.value || '',
-                pic: document.getElementById('qcPic')?.value || '',
-                customer: customer,
-                part: part,
-                spec: spec,
-                okPcs: parseInt(okInput?.value) || 0,
-                ngPcs: parseInt(ngInput?.value) || 0,
-                qtyKg: document.getElementById('qcQtyKg')?.value || '0',
-                note: document.getElementById('qcNote')?.value || '',
-                photo: photoBase64
-            };
-
-            const submitBtn = qcForm.querySelector('button[type="submit"]');
-
-            try {
-                if (submitBtn) {
-                    submitBtn.disabled = true;
-                    submitBtn.innerText = "Menyimpan ke Cloud...";
-                }
-
-                // Pengiriman data via Fetch HTTP POST ke MongoDB via Vercel
-                const response = await fetch(API_QC_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payloadData)
-                });
-
-                if (response.ok) {
-                    resetQcForm();
-                    await renderQcTable(); 
-                    alert("Data QC Berhasil Tersimpan di Cloud MongoDB!");
-                } else {
-                    const err = await response.json().catch(() => ({}));
-                    alert("Gagal menyimpan data: " + (err.message || "Server error"));
-                }
-
-            } catch (error) {
-                console.error("Error submitting QC:", error);
-                alert("Koneksi gagal! Pastikan HP/Laptop terhubung ke internet.");
-            } finally {
-                if (submitBtn) {
-                    submitBtn.disabled = false;
-                    const saveText = document.getElementById('btnSaveQcText');
-                    if (saveText) saveText.textContent = "Simpan Data QC";
-                }
-            }
-        });
-    }
-});
-
-// ==========================================
-// RENDER TABEL QC (SINKRON MONGODB)
-// ==========================================
-async function renderQcTable() {
+// RENDER TABEL QC
+function renderQcTable() {
     const tbody = document.getElementById('qcTableBody');
     if (!tbody) return;
-
-    const dateInput = document.getElementById('qcDate') || document.getElementById('tanggalQc');
-    let selectedDate = dateInput ? dateInput.value : '';
-
-    if (!selectedDate) {
-        selectedDate = new Date().toISOString().split('T')[0];
-        if (dateInput) dateInput.value = selectedDate;
-    }
-
-    try {
-        // Ambil data terbaru dari Serverless API MongoDB
-        const response = await fetch(API_QC_URL);
-        if (!response.ok) throw new Error("Gagal mengambil data dari MongoDB");
-
-        currentQcData = await response.json();
-// Matikan filter tanggal sementara untuk menampilkan SEMUA data dari MongoDB
-let filteredData = currentQcData;
-
-        tbody.innerHTML = '';
-        let totalOk = 0;
-        let totalNg = 0;
-        let totalKg = 0;
-
-        if (filteredData.length === 0) {
-            tbody.innerHTML = `
-                <tr>
-                    <td colspan="11" class="py-6 text-center text-red-500 font-bold">
-                        Tidak ada data QC untuk tanggal ${selectedDate}
-                    </td>
-                </tr>
-            `;
-        } else {
-            filteredData.forEach((item) => {
-                const itemId = item._id || item.id;
-                totalOk += Number(item.okPcs || 0);
-                totalNg += Number(item.ngPcs || 0);
-                totalKg += parseFloat(String(item.qtyKg || '0').replace(',', '.')) || 0;
-
-                const photoHtml = item.photo ? `
-                    <a href="${item.photo}" target="_blank">
-                        <img src="${item.photo}" class="h-10 w-10 object-cover rounded-lg mx-auto border border-slate-200 hover:scale-110 transition">
-                    </a>
-                ` : `<span class="text-slate-400 font-normal italic">-</span>`;
-
-                let tr = document.createElement('tr');
-                tr.className = "hover:bg-slate-50 transition";
-                tr.innerHTML = `
-                    <td class="py-3 px-4 text-center">
-                        <button type="button"
-                            onclick="editQc('${itemId}')"
-                            class="p-1.5 bg-amber-100 text-amber-700 hover:bg-amber-200 rounded-lg mr-1"
-                            title="Edit">
-                            <i class="fa-solid fa-pen text-xs"></i>
-                        </button>
-
-                        <button type="button"
-                            onclick="deleteQc('${itemId}')"
-                            class="p-1.5 bg-red-100 text-red-700 hover:bg-red-200 rounded-lg"
-                            title="Hapus">
-                            <i class="fa-solid fa-trash text-xs"></i>
-                        </button>
-                    </td>
-                    <td class="py-3 px-4">${item.date || '-'}</td>
-                    <td class="py-3 px-4 font-semibold">${item.pic || '-'}</td>
-                    <td class="py-3 px-4">${item.customer || '-'}</td>
-                    <td class="py-3 px-4 font-semibold text-slate-900">${item.part || '-'}</td>
-                    <td class="py-3 px-4 text-slate-500">${item.spec || '-'}</td>
-                    <td class="py-3 px-4 text-center font-bold text-emerald-600 bg-emerald-50/40">${item.okPcs || 0} PCS</td>
-                    <td class="py-3 px-4 text-center font-bold text-red-600 bg-red-50/40">${item.ngPcs || 0} PCS</td>
-                    <td class="py-3 px-4 text-right font-medium">${item.qtyKg || 0}</td>
-                    <td class="py-3 px-4 text-center">${photoHtml}</td>
-                    <td class="py-3 px-4 text-slate-600">${item.note || '-'}</td>
-                `;
-                tbody.appendChild(tr);
-            });
-        }
-
-        // Update Ringkasan Total
-        const elOk = document.getElementById('qcTotalOk');
-        const elNg = document.getElementById('qcTotalNg');
-        const elKg = document.getElementById('qcTotalKg');
-
-        if (elOk) elOk.textContent = totalOk + " PCS";
-        if (elNg) elNg.textContent = totalNg + " PCS";
-        if (elKg) elKg.textContent = totalKg.toFixed(1) + " Kg";
-
-    } catch (error) {
-        console.error("Gagal render tabel QC:", error);
-    }
-}
-
-// ==========================================
-// FUNGSI EDIT QC (DATA MONGODB)
-// ==========================================
-function editQc(id) {
-    const item = currentQcData.find(d => String(d._id || d.id) === String(id));
-    if (!item) return;
-
-    document.getElementById('qcEditIndex').value = id;
-    document.getElementById('qcDate').value = item.date || '';
-    document.getElementById('qcPic').value = item.pic || '';
-
-    if (typeof masterData !== 'undefined' && !masterData[item.customer]) {
-        if (typeof saveCustomToMasterData === 'function') {
-            saveCustomToMasterData(item.customer, item.part, item.spec);
-        }
-    }
-
-    document.getElementById('qcCustomerSelect').value = item.customer || '';
-    if (typeof onCustomerChange === 'function') {
-        onCustomerChange('qcCustomerSelect', 'qcPartSelect', 'qcSpec');
-    }
-
-    document.getElementById('qcPartSelect').value = item.part || '';
-    document.getElementById('qcSpec').value = item.spec || '';
-    document.getElementById('qcQtyKg').value = item.qtyKg || '';
-    
-    const okInput = document.getElementById('qcOkPCS') || document.getElementById('qcOkPcs');
-    const ngInput = document.getElementById('qcNgPCS') || document.getElementById('qcNgPcs');
-    if (okInput) okInput.value = item.okPcs || 0;
-    if (ngInput) ngInput.value = item.ngPcs || 0;
-
-    document.getElementById('qcNote').value = item.note || '';
-
-    // Preview Foto QC Saat Edit
-    const imgPreview = document.querySelector('#qcPhotoPreview img');
-    const containerPreview = document.getElementById('qcPhotoPreview');
-    const photoBase64Input = document.getElementById('qcPhotoBase64');
-
-    if (photoBase64Input) photoBase64Input.value = item.photo || '';
-
-    if (item.photo && imgPreview && containerPreview) {
-        imgPreview.src = item.photo;
-        containerPreview.classList.remove('hidden');
-        containerPreview.classList.add('flex');
-    } else if (containerPreview && imgPreview) {
-        imgPreview.src = '';
-        containerPreview.classList.add('hidden');
-        containerPreview.classList.remove('flex');
-    }
-
-    const editBadge = document.getElementById('qcEditBadge');
-    const saveText = document.getElementById('btnSaveQcText');
-    if (editBadge) editBadge.classList.remove('hidden');
-    if (saveText) saveText.textContent = "Perbarui Data QC";
-
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-}
-
-// ==========================================
-// RESET FORM QC
-// ==========================================
-function resetQcForm() {
-    const qcForm = document.getElementById('qcForm');
-    if (qcForm) qcForm.reset();
-
-    const editIndex = document.getElementById('qcEditIndex');
-    if (editIndex) editIndex.value = "-1";
-
-    const editBadge = document.getElementById('qcEditBadge');
-    if (editBadge) editBadge.classList.add('hidden');
-
-    const saveText = document.getElementById('btnSaveQcText');
-    if (saveText) saveText.textContent = "Simpan Data QC";
-
-    const custContainer = document.getElementById('qcCustomerCustomContainer');
-    if (custContainer) custContainer.classList.add('hidden');
-
-    const partContainer = document.getElementById('qcPartCustomContainer');
-    if (partContainer) partContainer.classList.add('hidden');
-
-    const previewContainer = document.getElementById('qcPhotoPreview');
-    if (previewContainer) {
-        previewContainer.classList.add('hidden');
-        previewContainer.classList.remove('flex');
-    }
-
-    const qcPhotoBase64 = document.getElementById('qcPhotoBase64');
-    if (qcPhotoBase64) qcPhotoBase64.value = '';
-
-    const qcPhotoInput = document.getElementById('qcPhoto');
-    if (qcPhotoInput) qcPhotoInput.value = '';
-
-    const today = new Date().toISOString().split('T')[0];
-    const dateInput = document.getElementById('qcDate');
-    if (dateInput) dateInput.value = today;
-}
-
-// ==========================================
-// FUNGSI DELETE QC (CLOUD MONGODB)
-// ==========================================
-async function deleteQc(id) {
-    if (!id || id === "undefined") {
-        alert("Gagal menghapus: ID data tidak valid!");
-        return;
-    }
-
-    if (confirm("Apakah Anda yakin ingin menghapus data QC ini dari Database Cloud?")) {
-        try {
-            const response = await fetch(API_QC_URL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'delete', id: id, _id: id })
-            });
-
-            if (response.ok) {
-                await renderQcTable();
-                alert("Data berhasil dihapus dari Cloud MongoDB!");
-            } else {
-                alert("Gagal menghapus data dari server.");
-            }
-        } catch (error) {
-            console.error("Gagal menghapus QC:", error);
-            alert("Error koneksi saat menghapus data.");
-        }
-    }
-}
-// ==========================================
-// HUBUNGKAN FORM PRODUKSI KE FUNGSI SIMPAN
-// ==========================================
-
-document.addEventListener('DOMContentLoaded', function () {
-
-    const prodForm = document.getElementById('prodForm');
-
-    if (prodForm) {
-        prodForm.addEventListener('submit', function (e) {
-            e.preventDefault();
-
-            // Jalankan fungsi simpan produksi
-            simpanDataProduksiManual(e);
-        });
-    }
-
-});
-// ==========================================
-// SIMPAN DATA PRODUKSI MANUAL (ANTI MACET)
-// ==========================================
-function simpanDataProduksiManual(e) {
-    if (e) e.preventDefault();
-    try {
-        let customer = document.getElementById('prodCustomerSelect')?.value || '';
-        let part = document.getElementById('prodPartSelect')?.value || '';
-        let date = document.getElementById('prodDate')?.value;
-        let shift = document.getElementById('prodShift')?.value;
-        let pic = document.getElementById('prodPic')?.value;
-
-        // Validasi wajib isi
-        if (!date || !shift || !pic || !customer || !part) {
-            alert('Mohon lengkapi data utama terlebih dahulu (Tanggal, Shift, PIC, Customer, dan Part Name)!');
-            return;
-        }
-
-        const cromating = document.getElementById('prodCromating')?.value || '';
-        let photoBase64 = document.getElementById('prodPhotoBase64')?.value || '';
-        let prodData = JSON.parse(localStorage.getItem('mbi_prod_data') || '[]');
-        const editIndex = parseInt(document.getElementById('prodEditIndex')?.value || "-1", 10);
-
-        if (editIndex > -1 && !photoBase64 && prodData[editIndex]) {
-            photoBase64 = prodData[editIndex].photo || '';
-        }
-
-        const dataItem = {
-            date: date,
-            shift: shift,
-            pic: pic,
-            customer: customer,
-            part: part,
-            cromating: cromating,
-            qty: document.getElementById('prodQty')?.value || '0',
-            barrel: document.getElementById('prodBarrel')?.value || '1',
-            ampr: document.getElementById('prodAmpr')?.value || '0',
-            timeIn: document.getElementById('prodTimeIn')?.value || '',
-            timeOut: document.getElementById('prodTimeOut')?.value || '',
-            additive: document.getElementById('prodAdditive')?.value || '',
-            note: document.getElementById('prodNote')?.value || '',
-            photo: photoBase64
-        };
-
-        if (editIndex > -1) {
-            prodData[editIndex] = dataItem;
-            document.getElementById('prodEditIndex').value = "-1";
-        } else {
-            prodData.push(dataItem);
-        }
-
-        localStorage.setItem('mbi_prod_data', JSON.stringify(prodData));
-        
-        if (typeof resetProdForm === 'function') resetProdForm();
-        if (typeof renderProdTable === 'function') renderProdTable();
-        
-        alert('Data produksi berhasil disimpan!');
-    } catch (err) {
-        console.error("Error saving:", err);
-        alert("Terjadi error: " + err.message);
-    }
-}
-// ==========================================
-// RENDER TABEL PRODUKSI
-// ==========================================
-
-function renderProdTable() {
-    const tbody = document.getElementById('prodTableBody');
-    if (!tbody) return;
-
     tbody.innerHTML = '';
-    const selectedDate = document.getElementById('prodDate').value;
+    const selectedDate = document.getElementById('qcDate')?.value;
 
-    // Ambil data yang sudah ditarik dari MongoDB (misal: currentProdData / globalProdData)
-let filteredData = currentProdData;
-
-    let totalKg = 0;
-    let totalBarrelCount = filteredData.length;
-    let totalAmpr = 0;
+    let filteredData = globalQcData.filter(item => item.date === selectedDate);
+    let totalOk = 0, totalNg = 0, totalKg = 0;
 
     if (filteredData.length === 0) {
-        tbody.innerHTML = `
-            <tr>
-                <td colspan="16" class="py-6 text-center text-slate-400 font-medium italic">
-                    Tidak ada laporan Produksi untuk tanggal ${selectedDate}
-                </td>
-            </tr>
-            
-        `;
+        tbody.innerHTML = `<tr><td colspan="11" class="py-6 text-center text-red-500 font-bold">Tidak ada data QC untuk tanggal ${selectedDate}</td></tr>`;
     } else {
-        filteredData.forEach((item, index) => {
-            totalKg += parseFloat(String(item.qty || '0').replace(',', '.')) || 0;
-            totalAmpr += parseFloat(String(item.ampr || '0').replace(',', '.')) || 0;
+        filteredData.forEach((item) => {
+            totalOk += Number(item.okPcs || 0);
+            totalNg += Number(item.ngPcs || 0);
+            totalKg += parseFloat(String(item.qtyKg || '0').replace(',', '.')) || 0;
 
-            const photoHtml = item.photo ? `
-                <a href="${item.photo}" target="_blank" title="Lihat foto">
-                    <img src="${item.photo}" class="h-10 w-10 object-cover rounded-lg mx-auto border border-slate-200 hover:scale-110 transition">
-                </a>
-            ` : `<span class="text-slate-400 font-normal italic">-</span>`;
+            const photoHtml = item.photo ? `<a href="${item.photo}" target="_blank"><img src="${item.photo}" class="h-10 w-10 object-cover rounded-lg mx-auto border"></a>` : `-`;
 
-           let tr = document.createElement('tr');
+            let tr = document.createElement('tr');
             tr.className = "hover:bg-slate-50 transition";
             tr.innerHTML = `
                 <td class="py-3 px-4 text-center">
-                    <button type="button" onclick="editProd(${item.originalIndex})" class="p-1.5 bg-amber-100 text-amber-700 hover:bg-amber-200 rounded-lg mr-1" title="Edit">
-                        <i class="fa-solid fa-pen text-xs"></i>
-                    </button>
-                    <button type="button" onclick="deleteProd(${item.originalIndex})" class="p-1.5 bg-red-100 text-red-700 hover:bg-red-200 rounded-lg" title="Hapus">
-                        <i class="fa-solid fa-trash text-xs"></i>
-                    </button>
+                    <button type="button" onclick="editQc('${item._id}')" class="p-1.5 bg-amber-100 text-amber-700 hover:bg-amber-200 rounded-lg mr-1"><i class="fa-solid fa-pen text-xs"></i></button>
+                    <button type="button" onclick="deleteQc('${item._id}')" class="p-1.5 bg-red-100 text-red-700 hover:bg-red-200 rounded-lg"><i class="fa-solid fa-trash text-xs"></i></button>
+                </td>
+                <td class="py-3 px-4">${item.date}</td>
+                <td class="py-3 px-4 font-semibold">${item.pic}</td>
+                <td class="py-3 px-4">${item.customer}</td>
+                <td class="py-3 px-4 font-semibold text-slate-900">${item.part}</td>
+                <td class="py-3 px-4 text-slate-500">${item.spec}</td>
+                <td class="py-3 px-4 text-center font-bold text-emerald-600 bg-emerald-50/40">${item.okPcs} PCS</td>
+                <td class="py-3 px-4 text-center font-bold text-red-600 bg-red-50/40">${item.ngPcs} PCS</td>
+                <td class="py-3 px-4 text-right font-medium">${item.qtyKg}</td>
+                <td class="py-3 px-4 text-center">${photoHtml}</td>
+                <td class="py-3 px-4 text-slate-600">${item.note}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+    }
+
+    document.getElementById('qcTotalOk').textContent = totalOk + " PCS";
+    document.getElementById('qcTotalNg').textContent = totalNg + " PCS";
+    document.getElementById('qcTotalKg').textContent = totalKg.toFixed(1) + " Kg";
+}
+
+function editQc(id) {
+    let item = globalQcData.find(i => i._id === id);
+    if (!item) return;
+
+    document.getElementById('qcEditIndex').value = id;
+    document.getElementById('qcDate').value = item.date;
+    document.getElementById('qcPic').value = item.pic;
+    document.getElementById('qcCustomerSelect').value = item.customer;
+    onCustomerChange('qcCustomerSelect', 'qcPartSelect', 'qcSpec');
+    document.getElementById('qcPartSelect').value = item.part;
+    document.getElementById('qcSpec').value = item.spec;
+    document.getElementById('qcQtyKg').value = item.qtyKg;
+    document.getElementById('qcOkPcs').value = item.okPcs;
+    document.getElementById('qcNgPcs').value = item.ngPcs;
+    document.getElementById('qcNote').value = item.note;
+
+    if (item.photo) {
+        document.getElementById('qcPhotoBase64').value = item.photo;
+        const imgPreview = document.getElementById('qcPhotoImg');
+        if (imgPreview) imgPreview.src = item.photo;
+        document.getElementById('qcPhotoPreview')?.classList.remove('hidden');
+    }
+
+    document.getElementById('qcEditBadge')?.classList.remove('hidden');
+    document.getElementById('btnSaveQcText').textContent = "Perbarui Data QC";
+}
+
+async function deleteQc(id) {
+    if (confirm("Yakin hapus data QC ini?")) {
+        await fetch(`/api/qc/${id}`, { method: 'DELETE' });
+        await fetchQcData();
+    }
+}
+
+function resetQcForm() {
+    document.getElementById('qcForm').reset();
+    document.getElementById('qcEditIndex').value = "-1";
+    document.getElementById('qcEditBadge')?.classList.add('hidden');
+    document.getElementById('btnSaveQcText').textContent = "Simpan Data QC";
+    document.getElementById('qcPhotoPreview')?.classList.add('hidden');
+    document.getElementById('qcPhotoBase64').value = '';
+}
+
+// RENDER TABEL PRODUKSI
+function renderProdTable() {
+    const tbody = document.getElementById('prodTableBody');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+    const selectedDate = document.getElementById('prodDate').value;
+
+    let filteredData = globalProdData.filter(item => item.date === selectedDate);
+    let totalKg = 0, totalAmpr = 0;
+
+    if (filteredData.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="14" class="py-6 text-center text-slate-400 italic">Tidak ada laporan Produksi untuk tanggal ${selectedDate}</td></tr>`;
+    } else {
+        filteredData.forEach((item) => {
+            totalKg += parseFloat(String(item.qty || '0').replace(',', '.')) || 0;
+            totalAmpr += parseFloat(String(item.ampr || '0').replace(',', '.')) || 0;
+
+            const photoHtml = item.photo ? `<a href="${item.photo}" target="_blank"><img src="${item.photo}" class="h-10 w-10 object-cover rounded-lg mx-auto border"></a>` : `-`;
+
+            let tr = document.createElement('tr');
+            tr.className = "hover:bg-slate-50 transition";
+            tr.innerHTML = `
+                <td class="py-3 px-4 text-center">
+                    <button type="button" onclick="editProd('${item._id}')" class="p-1.5 bg-amber-100 text-amber-700 hover:bg-amber-200 rounded-lg mr-1"><i class="fa-solid fa-pen text-xs"></i></button>
+                    <button type="button" onclick="deleteProd('${item._id}')" class="p-1.5 bg-red-100 text-red-700 hover:bg-red-200 rounded-lg"><i class="fa-solid fa-trash text-xs"></i></button>
                 </td>
                 <td class="py-3 px-4">${item.date}</td>
                 <td class="py-3 px-4 font-semibold text-slate-700">${item.shift}</td>
@@ -948,31 +614,20 @@ let filteredData = currentProdData;
     }
 
     document.getElementById('prodTotalKg').textContent = totalKg.toFixed(1) + " Kg";
-    document.getElementById('prodTotalBarrel').textContent = totalBarrelCount + " Barel";
+    document.getElementById('prodTotalBarrel').textContent = filteredData.length + " Barel";
     document.getElementById('prodTotalAmpr').textContent = totalAmpr;
 }
 
-// ==========================================
-// EDIT PRODUKSI
-// ==========================================
-
-function editProd(index) {
-    let prodData = JSON.parse(localStorage.getItem('mbi_prod_data') || '[]');
-    let item = prodData[index];
+function editProd(id) {
+    let item = globalProdData.find(i => i._id === id);
     if (!item) return;
 
-    document.getElementById('prodEditIndex').value = index;
+    document.getElementById('prodEditIndex').value = id;
     document.getElementById('prodDate').value = item.date;
     document.getElementById('prodShift').value = item.shift;
     document.getElementById('prodPic').value = item.pic;
-
-    if (!masterData[item.customer]) {
-        saveCustomToMasterData(item.customer, item.part, item.cromating);
-    }
-
     document.getElementById('prodCustomerSelect').value = item.customer;
     onCustomerChange('prodCustomerSelect', 'prodPartSelect', 'prodCromating');
-
     document.getElementById('prodPartSelect').value = item.part;
     document.getElementById('prodCromating').value = item.cromating;
     document.getElementById('prodQty').value = item.qty;
@@ -980,761 +635,48 @@ function editProd(index) {
     document.getElementById('prodAmpr').value = item.ampr;
     document.getElementById('prodTimeIn').value = item.timeIn;
     document.getElementById('prodTimeOut').value = item.timeOut;
-    document.getElementById('prodAdditive').value = item.additive;
+    document.getElementById('prodAdditive').value = item.additive || '';
     document.getElementById('prodNote').value = item.note;
 
-    // FOTO PRODUKSI SAAT EDIT
-    const imgPreview = document.getElementById('prodPhotoImg');
-    const containerPreview = document.getElementById('prodPhotoPreview');
-    const photoBase64Input = document.getElementById('prodPhotoBase64');
-
-    if (photoBase64Input) photoBase64Input.value = item.photo || '';
-
-    if (item.photo && imgPreview) {
-        imgPreview.src = item.photo;
-        if (containerPreview) {
-            containerPreview.classList.remove('hidden');
-            containerPreview.classList.add('flex');
-        }
-    } else {
-        if (imgPreview) imgPreview.src = '';
-        if (containerPreview) {
-            containerPreview.classList.add('hidden');
-            containerPreview.classList.remove('flex');
-        }
-    }
-
-    document.getElementById('prodEditBadge').classList.remove('hidden');
-    document.getElementById('btnSaveProdText').textContent = "Perbarui Data Produksi";
-
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-}
-
-// ==========================================
-// RESET FORM PRODUKSI
-// ==========================================
-
-function resetProdForm() {
-    document.getElementById('prodForm').reset();
-    document.getElementById('prodEditIndex').value = "-1";
-    document.getElementById('prodEditBadge').classList.add('hidden');
-    document.getElementById('btnSaveProdText').textContent = "Simpan Data Produksi";
-    document.getElementById('prodCustomerCustomContainer').classList.add('hidden');
-    document.getElementById('prodPartCustomContainer').classList.add('hidden');
-
-    const previewContainer = document.getElementById('prodPhotoPreview');
-    if (previewContainer) {
-        previewContainer.classList.add('hidden');
-        previewContainer.classList.remove('flex');
-    }
-
-    const imgPreview = document.getElementById('prodPhotoImg');
-    if (imgPreview) imgPreview.src = '';
-
-    const photoBase64 = document.getElementById('prodPhotoBase64');
-    if (photoBase64) photoBase64.value = '';
-
-    const photoInput = document.getElementById('prodPhoto');
-    if (photoInput) photoInput.value = '';
-
-    const today = new Date().toISOString().split('T')[0];
-    document.getElementById('prodDate').value = today;
-}
-
-// ==========================================
-// DELETE PRODUKSI
-// ==========================================
-
-function deleteProd(index) {
-    if (confirm("Apakah Anda yakin ingin menghapus data produksi ini?")) {
-        let prodData = JSON.parse(localStorage.getItem('mbi_prod_data') || '[]');
-        prodData.splice(index, 1);
-        localStorage.setItem('mbi_prod_data', JSON.stringify(prodData));
-        renderProdTable();
-    }
-}
-
-// ==========================================
-// 7. ARSIP RIWAYAT HARIAN
-// ==========================================
-
-function openRiwayatModal(type) {
-    const modalId = type === 'qc' ? 'riwayatQcModal' : 'riwayatProdModal';
-    const modal = document.getElementById(modalId);
-    if (modal) modal.classList.remove('hidden');
-    renderRiwayatTable(type === 'qc' ? 'qc' : 'produksi');
-}
-
-function closeRiwayatModal(type) {
-    const modalId = type === 'qc' ? 'riwayatQcModal' : 'riwayatProdModal';
-    const modal = document.getElementById(modalId);
-    if (modal) modal.classList.add('hidden');
-}
-
-// ==========================================
-// FILTER TANGGAL
-// ==========================================
-
-function handleDateFilterChange(type) {
-    const monthFilterId = type === 'qc' ? 'riwayatQcMonthFilter' : 'riwayatProdMonthFilter';
-    const monthFilter = document.getElementById(monthFilterId);
-    if (monthFilter) monthFilter.value = '';
-    renderRiwayatTable(type);
-}
-
-// ==========================================
-// FILTER BULAN
-// ==========================================
-
-function handleMonthFilterChange(type) {
-    const dateFilterId = type === 'qc' ? 'riwayatQcDateFilter' : 'riwayatProdDateFilter';
-    const dateFilter = document.getElementById(dateFilterId);
-    if (dateFilter) dateFilter.value = '';
-    renderRiwayatTable(type);
-}
-
-// ==========================================
-// RESET FILTER RIWAYAT
-// ==========================================
-
-function resetRiwayatFilter(type) {
-    const dateFilterId = type === 'qc' ? 'riwayatQcDateFilter' : 'riwayatProdDateFilter';
-    const monthFilterId = type === 'qc' ? 'riwayatQcMonthFilter' : 'riwayatProdMonthFilter';
-
-    const dateFilter = document.getElementById(dateFilterId);
-    const monthFilter = document.getElementById(monthFilterId);
-
-    if (dateFilter) dateFilter.value = '';
-    if (monthFilter) monthFilter.value = '';
-
-    renderRiwayatTable(type);
-}
-
-// ==========================================
-// DETAIL CARD RIWAYAT
-// ==========================================
-
-function toggleRiwayatCardDetails(cardId) {
-    const detailBox = document.getElementById('detail-' + cardId);
-    const icon = document.getElementById('icon-' + cardId);
-
-    if (detailBox) {
-        detailBox.classList.toggle('hidden');
-        if (icon) icon.classList.toggle('rotate-180');
-    }
-}
-
-// ==========================================
-// CARI NOMOR BULAN
-// ==========================================
-
-function getMonthNumberFromQuery(query) {
-    const cleanQuery = String(query || '').toLowerCase().trim();
-    if (!cleanQuery) return null;
-
-    const num = parseInt(cleanQuery, 10);
-    if (!isNaN(num) && num >= 1 && num <= 12) return num;
-
-    for (let i = 0; i < monthNamesIndo.length; i++) {
-        if (monthNamesIndo[i].startsWith(cleanQuery)) return i + 1;
-    }
-
-    for (let i = 0; i < monthNamesEng.length; i++) {
-        if (monthNamesEng[i].startsWith(cleanQuery)) return i + 1;
-    }
-
-    return null;
-}
-
-// ==========================================
-// TOMBOL EXCEL DINAMIS
-// ==========================================
-
-function updateDynamicExcelButton(type, filterDate, monthQuery, dataCount) {
-    const containerId = type === 'qc' ? 'dynamicExcelQcContainer' : 'dynamicExcelProdContainer';
-    const labelId = type === 'qc' ? 'dynamicExcelQcLabel' : 'dynamicExcelProdLabel';
-    const btnTextId = type === 'qc' ? 'dynamicExcelQcBtnText' : 'dynamicExcelProdBtnText';
-
-    const container = document.getElementById(containerId);
-    const label = document.getElementById(labelId);
-    const btnText = document.getElementById(btnTextId);
-
-    if (!container || !label || !btnText) return;
-
-    const isFilterActive = (filterDate !== '' || monthQuery !== '');
-
-    if (isFilterActive && dataCount > 0) {
-        let labelDesc = filterDate 
-            ? `Tanggal ${filterDate}` 
-            : `Bulan ${monthQuery.charAt(0).toUpperCase() + monthQuery.slice(1)}`;
-
-        label.textContent = `Rekap Data ${labelDesc} (${dataCount} Data)`;
-        btnText.textContent = `Unduh Rekap Excel ${labelDesc}`;
-
-        container.classList.remove('hidden');
-        container.classList.add('flex');
-    } else {
-        container.classList.add('hidden');
-        container.classList.remove('flex');
-    }
-}
-
-// ==========================================
-// RENDER RIWAYAT
-// ==========================================
-
-function renderRiwayatTable(type) {
-    const containerId = type === 'qc' ? 'riwayatQcContainer' : 'riwayatProdContainer';
-    const container = document.getElementById(containerId);
-    if (!container) return;
-
-    container.innerHTML = '';
-
-    const filterDateId = type === 'qc' ? 'riwayatQcDateFilter' : 'riwayatProdDateFilter';
-    const monthQueryId = type === 'qc' ? 'riwayatQcMonthFilter' : 'riwayatProdMonthFilter';
-
-    const filterDate = document.getElementById(filterDateId)?.value || '';
-    const monthQuery = document.getElementById(monthQueryId)?.value.trim() || '';
-    const storageKey = type === 'qc' ? 'mbi_qc_data' : 'mbi_prod_data';
-
-    let dataList = JSON.parse(localStorage.getItem(storageKey) || '[]');
-    let grouped = {};
-
-    dataList.forEach(item => {
-        if (!grouped[item.date]) grouped[item.date] = [];
-        grouped[item.date].push(item);
-    });
-
-    let dates = Object.keys(grouped).sort((a, b) => new Date(b) - new Date(a));
-
-    if (filterDate) {
-        dates = dates.filter(d => d === filterDate);
-    } else if (monthQuery) {
-        const targetMonth = getMonthNumberFromQuery(monthQuery);
-        dates = dates.filter(d => {
-            const parts = d.split('-');
-            if (parts.length >= 2) {
-                const monthNum = parseInt(parts[1], 10);
-                if (targetMonth !== null) return monthNum === targetMonth;
-                return d.includes(monthQuery);
-            }
-            return false;
-        });
-    }
-
-    let totalFilteredRecords = 0;
-    dates.forEach(d => { totalFilteredRecords += grouped[d].length; });
-
-    updateDynamicExcelButton(type, filterDate, monthQuery, totalFilteredRecords);
-
-    if (dates.length === 0) {
-        container.innerHTML = `
-            <div class="py-12 text-center text-slate-400 bg-white rounded-2xl border border-dashed border-slate-300 shadow-sm">
-                <i class="fa-solid fa-folder-open text-4xl mb-3 text-slate-300"></i>
-                <p class="text-sm font-bold text-slate-600">
-                    Tidak ada arsip riwayat harian ${type.toUpperCase()}
-                </p>
-                <p class="text-xs text-slate-400 mt-1">
-                    Gunakan filter tanggal atau ketik bulan untuk melihat rekap
-                </p>
-            </div>
-        `;
-        return;
-    }
-
-    dates.forEach((dateStr, idx) => {
-        let items = grouped[dateStr];
-        const cardId = `${type}-card-${idx}`;
-        let cardHtml = '';
-
-        if (type === 'qc') {
-            let totalKg = items.reduce((acc, i) => acc + (parseFloat(String(i.qtyKg || '0').replace(',', '.')) || 0), 0);
-            let rowsHtml = items.map((i, iIdx) => {
-                const photoHtml = i.photo ? `
-                    <a href="${i.photo}" target="_blank">
-                        <img src="${i.photo}" class="h-8 w-8 object-cover rounded mx-auto border border-slate-200">
-                    </a>
-                ` : `-`;
-
-                return `
-                    <tr class="border-b border-slate-100 hover:bg-slate-50/80 transition">
-                        <td class="py-2.5 px-3 text-center text-slate-400 font-bold">${iIdx + 1}</td>
-                        <td class="py-2.5 px-3 text-center">${photoHtml}</td>
-                        <td class="py-2.5 px-3 font-semibold text-slate-800">${i.pic || '-'}</td>
-                        <td class="py-2.5 px-3 text-slate-700">${i.customer || '-'}</td>
-                        <td class="py-2.5 px-3 font-semibold text-slate-900">${i.part || '-'}</td>
-                        <td class="py-2.5 px-3 text-slate-500">${i.spec || '-'}</td>
-                        <td class="py-2.5 px-3 text-center font-bold text-emerald-600 bg-emerald-50/30">${i.okPcs} PCS</td>
-                        <td class="py-2.5 px-3 text-center font-bold text-red-600 bg-red-50/30">${i.ngPcs} PCS</td>
-                        <td class="py-2.5 px-3 text-right font-medium">${i.qtyKg || 0} Kg</td>
-                        <td class="py-2.5 px-3 text-slate-500">${i.note || '-'}</td>
-                    </tr>
-                `;
-            }).join('');
-
-            cardHtml = `
-                <div class="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden hover:border-slate-300 transition">
-                    <div class="p-4 flex flex-wrap items-center justify-between gap-3 bg-slate-50/70 border-b border-slate-100">
-                        <div class="flex items-center gap-3 cursor-pointer select-none" onclick="toggleRiwayatCardDetails('${cardId}')">
-                            <div class="w-10 h-10 rounded-xl bg-red-100 text-red-600 flex items-center justify-center font-bold text-sm shadow-xs">
-                                <i class="fa-regular fa-calendar-check"></i>
-                            </div>
-                            <div>
-                                <h4 class="text-xs sm:text-sm font-bold text-slate-900">${dateStr}</h4>
-                                <p class="text-[11px] text-slate-500 font-medium">${items.length} Record QC</p>
-                            </div>
-                        </div>
-                        <div class="flex items-center gap-2 text-xs">
-                            <span class="px-3 py-1 bg-amber-100/80 text-amber-800 rounded-lg font-bold border border-amber-200/50">
-                                Total: ${totalKg.toFixed(1)} Kg
-                            </span>
-                            <button type="button" onclick="toggleRiwayatCardDetails('${cardId}')" class="p-1.5 bg-slate-200/80 hover:bg-slate-300 text-slate-600 rounded-xl transition">
-                                <i id="icon-${cardId}" class="fa-solid fa-chevron-down text-xs transition-transform duration-200"></i>
-                            </button>
-                        </div>
-                    </div>
-                    <div id="detail-${cardId}" class="hidden p-3 bg-white">
-                        <div class="overflow-x-auto rounded-xl border border-slate-200">
-                            <table class="w-full text-left text-[11px] whitespace-nowrap">
-                                <thead class="bg-slate-50 text-slate-600 font-bold uppercase border-b border-slate-200">
-                                    <tr>
-                                        <th class="py-2.5 px-3 text-center">No</th>
-                                        <th class="py-2.5 px-3 text-center">Foto Label</th>
-                                        <th class="py-2.5 px-3">PIC</th>
-                                        <th class="py-2.5 px-3">Customer</th>
-                                        <th class="py-2.5 px-3">Nama Part</th>
-                                        <th class="py-2.5 px-3">Spec</th>
-                                        <th class="py-2.5 px-3 text-center">Qty OK</th>
-                                        <th class="py-2.5 px-3 text-center">Qty NG</th>
-                                        <th class="py-2.5 px-3 text-right">QTY (Kg)</th>
-                                        <th class="py-2.5 px-3">Keterangan</th>
-                                    </tr>
-                                </thead>
-                                <tbody class="divide-y divide-slate-100">${rowsHtml}</tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            `;
-        } else {
-            let totalKg = items.reduce((acc, i) => acc + (parseFloat(String(i.qty || '0').replace(',', '.')) || 0), 0);
-            let rowsHtml = items.map((i, iIdx) => {
-                const photoHtml = i.photo ? `
-                    <a href="${i.photo}" target="_blank">
-                        <img src="${i.photo}" class="h-8 w-8 object-cover rounded mx-auto border border-slate-200">
-                    </a>
-                ` : `-`;
-
-                return `
-                    <tr class="border-b border-slate-100 hover:bg-slate-50/80 transition">
-                        <td class="py-2.5 px-3 text-center text-slate-400 font-bold">${iIdx + 1}</td>
-                        <td class="py-2.5 px-3 text-center">${photoHtml}</td>
-                        <td class="py-2.5 px-3 font-medium text-slate-700">${i.shift || '-'}</td>
-                        <td class="py-2.5 px-3 font-semibold text-slate-800">${i.pic || '-'}</td>
-                        <td class="py-2.5 px-3 text-slate-700">${i.customer || '-'}</td>
-                        <td class="py-2.5 px-3 font-semibold text-slate-900">${i.part || '-'}</td>
-                        <td class="py-2.5 px-3 text-slate-500">${i.cromating || '-'}</td>
-                        <td class="py-2.5 px-3 text-right font-medium">${i.qty || 0} Kg</td>
-                        <td class="py-2.5 px-3 text-center font-bold text-slate-700">${i.barrel || '-'}</td>
-                        <td class="py-2.5 px-3 text-center text-slate-700">${i.ampr || '-'}</td>
-                        <td class="py-2.5 px-3 text-center text-slate-500">${i.timeIn || '-'} / ${i.timeOut || '-'}</td>
-                        <td class="py-2.5 px-3 text-slate-600">${i.additive || '-'}</td>
-                        <td class="py-2.5 px-3 text-slate-500">${i.note || '-'}</td>
-                    </tr>
-                `;
-            }).join('');
-
-            cardHtml = `
-                <div class="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden hover:border-slate-300 transition">
-                    <div class="p-4 flex flex-wrap items-center justify-between gap-3 bg-slate-50/70 border-b border-slate-100">
-                        <div class="flex items-center gap-3 cursor-pointer select-none" onclick="toggleRiwayatCardDetails('${cardId}')">
-                            <div class="w-10 h-10 rounded-xl bg-red-100 text-red-600 flex items-center justify-center font-bold text-sm shadow-xs">
-                                <i class="fa-regular fa-calendar-check"></i>
-                            </div>
-                            <div>
-                                <h4 class="text-xs sm:text-sm font-bold text-slate-900">${dateStr}</h4>
-                                <p class="text-[11px] text-slate-500 font-medium">${items.length} Barel / Proses Produksi</p>
-                            </div>
-                        </div>
-                        <div class="flex items-center gap-2 text-xs">
-                            <span class="px-3 py-1 bg-amber-100/80 text-amber-800 rounded-lg font-bold border border-amber-200/50">
-                                Total: ${totalKg.toFixed(1)} Kg
-                            </span>
-                            <button type="button" onclick="toggleRiwayatCardDetails('${cardId}')" class="p-1.5 bg-slate-200/80 hover:bg-slate-300 text-slate-600 rounded-xl transition">
-                                <i id="icon-${cardId}" class="fa-solid fa-chevron-down text-xs transition-transform duration-200"></i>
-                            </button>
-                        </div>
-                    </div>
-                    <div id="detail-${cardId}" class="hidden p-3 bg-white">
-                        <div class="overflow-x-auto rounded-xl border border-slate-200">
-                            <table class="w-full text-left text-[11px] whitespace-nowrap">
-                                <thead class="bg-slate-50 text-slate-600 font-bold uppercase border-b border-slate-200">
-                                    <tr>
-                                        <th class="py-2.5 px-3 text-center">No</th>
-                                        <th class="py-2.5 px-3 text-center">Foto Label</th>
-                                        <th class="py-2.5 px-3">Shift</th>
-                                        <th class="py-2.5 px-3">PIC Operator</th>
-                                        <th class="py-2.5 px-3">Customer</th>
-                                        <th class="py-2.5 px-3">Part Name</th>
-                                        <th class="py-2.5 px-3">Cromating</th>
-                                        <th class="py-2.5 px-3 text-right">QTY (Kg)</th>
-                                        <th class="py-2.5 px-3 text-center">Barrel</th>
-                                        <th class="py-2.5 px-3 text-center">AMPR</th>
-                                        <th class="py-2.5 px-3 text-center">IN / OUT</th>
-                                        <th class="py-2.5 px-3">Aditif</th>
-                                        <th class="py-2.5 px-3">Keterangan</th>
-                                    </tr>
-                                </thead>
-                                <tbody class="divide-y divide-slate-100">${rowsHtml}</tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            `;
-        }
-
-        container.innerHTML += cardHtml;
-    });
-}
-
-// ==========================================
-// 8. EXPORT EXCEL
-// ==========================================
-function exportMonthlyExcel(type) {
-    const filterDateId = type === 'qc' ? 'riwayatQcDateFilter' : 'riwayatProdDateFilter';
-    const monthQueryId = type === 'qc' ? 'riwayatQcMonthFilter' : 'riwayatProdMonthFilter';
-
-    const filterDate = document.getElementById(filterDateId)?.value || '';
-    const monthQuery = document.getElementById(monthQueryId)?.value.trim() || '';
-    const storageKey = type === 'qc' ? 'mbi_qc_data' : 'mbi_prod_data';
-
-    let dataList = JSON.parse(localStorage.getItem(storageKey) || '[]');
-    let filteredData = dataList.filter(item => {
-        if (filterDate) return item.date === filterDate;
-        if (monthQuery) {
-            const targetMonth = getMonthNumberFromQuery(monthQuery);
-            const parts = item.date.split('-');
-            if (parts.length >= 2) {
-                const monthNum = parseInt(parts[1], 10);
-                if (targetMonth !== null) return monthNum === targetMonth;
-                return item.date.includes(monthQuery);
-            }
-        }
-        return false;
-    });
-
-    if (filteredData.length === 0) {
-        alert('Tidak ada data yang tersedia untuk diunduh pada kriteria filter saat ini!');
-        return;
-    }
-
-    const isQC = (type === 'qc');
-    const titleText = isQC ? "REKAP LAPORAN QUALITY CONTROL" : "REKAP LAPORAN PRODUKSI HARIAN";
-    
-    // Header Kolom dari 'No' ke samping kanan
-    const headers = isQC 
-        ? ["No", "Tanggal", "PIC Inspector", "Customer", "Nama Part", "Spec / Finishing", "Qty OK (PCS)", "Qty NG (PCS)", "Qty (Kg)", "Keterangan"]
-        : ["No", "Tanggal", "Shift", "PIC Operator", "Customer", "Part Name", "Cromating", "QTY (Kg)", "Barrel", "Ampere", "Time IN", "Time OUT", "Keterangan"];
-
-    let sheetData = [
-        ["PT. MEGUMI BRAYAN INDONESIA"],
-        [titleText],
-        [], // Baris kosong pembatas
-        headers
-    ];
-
-    // Olah Data Isi Tabel & Total
-    if (isQC) {
-        let totalOk = 0, totalNg = 0, totalKg = 0;
-        filteredData.forEach((item, idx) => {
-            let ok = parseInt(item.okPcs) || 0;
-            let ng = parseInt(item.ngPcs) || 0;
-            let kg = parseFloat(String(item.qtyKg || '0').replace(',', '.')) || 0;
-
-            totalOk += ok;
-            totalNg += ng;
-            totalKg += kg;
-
-            sheetData.push([
-                idx + 1, item.date || '', item.pic || '', item.customer || '', item.part || '',
-                item.spec || '', ok, ng, kg, item.note || ''
-            ]);
-        });
-        sheetData.push(["TOTAL HARIAN", "", "", "", "", "", totalOk, totalNg, totalKg, ""]);
-    } else {
-        let totalKg = 0, totalAmpr = 0;
-        filteredData.forEach((item, idx) => {
-            let kg = parseFloat(String(item.qty || '0').replace(',', '.')) || 0;
-            let ampr = parseFloat(String(item.ampr || '0').replace(',', '.')) || 0;
-
-            totalKg += kg;
-            totalAmpr += ampr;
-
-            sheetData.push([
-                idx + 1, item.date || '', item.shift || '', item.pic || '', item.customer || '',
-                item.part || '', item.cromating || '', kg, item.barrel || '', ampr,
-                item.timeIn || '', item.timeOut || '', item.note || ''
-            ]);
-        });
-        sheetData.push(["TOTAL HARIAN", "", "", "", "", "", "", totalKg, filteredData.length + " Barel", totalAmpr, "", "", ""]);
-    }
-
-    const ws = XLSX.utils.aoa_to_sheet(sheetData);
-
-    // 1. PENGATURAN LEBAR KOLOM OTOMATIS (MENCEGAH TEKS TERPUTUS)
-    const colWidths = headers.map((header, colIdx) => {
-        let maxLen = header.length;
-        sheetData.forEach(row => {
-            const cellVal = row[colIdx] !== null && row[colIdx] !== undefined ? String(row[colIdx]) : '';
-            if (cellVal.length > maxLen) maxLen = cellVal.length;
-        });
-        return { wch: Math.max(maxLen + 4, 12) }; // Padded ekstra 4 karakter
-    });
-    ws['!cols'] = colWidths;
-
-   // Variable cache global untuk data produksi
-let cachedProdData = [];
-
-document.addEventListener('DOMContentLoaded', function () {
-    const prodForm = document.getElementById('prodForm');
-    if (prodForm) {
-        prodForm.addEventListener('submit', function (e) {
-            e.preventDefault();
-            simpanDataProduksiManual(e);
-        });
-    }
-    // Load data awal dari MongoDB Vercel
-    renderProdTable();
-});
-
-// ==========================================
-// FUNGSI KOMPRESI FOTO HP (MENCEGAH ERROR VERCEL 4.5MB)
-// ==========================================
-function compressImage(file, maxWidth = 800, quality = 0.7) {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.readAsDataURL(file);
-        reader.onload = (event) => {
-            const img = new Image();
-            img.src = event.target.result;
-            img.onload = () => {
-                const canvas = document.createElement('canvas');
-                let width = img.width;
-                let height = img.height;
-
-                if (width > maxWidth) {
-                    height = Math.round((height * maxWidth) / width);
-                    width = maxWidth;
-                }
-
-                canvas.width = width;
-                canvas.height = height;
-
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(img, 0, 0, width, height);
-
-                // Hasil kompresi Base64 ringan
-                resolve(canvas.toDataURL('image/jpeg', quality));
-            };
-            img.onerror = (err) => reject(err);
-        };
-        reader.onerror = (err) => reject(err);
-    });
-}
-
-// ==========================================
-// HANDLE UPLOAD FOTO DARI HP/GALERI
-// ==========================================
-async function handlePhotoInput(input) {
-    if (!input || !input.files || !input.files[0]) return;
-
-    try {
-        // Kompres foto sebelum dimasukkan ke input hidden
-        const compressedBase64 = await compressImage(input.files[0]);
-        
-        const photoBase64Input = document.getElementById('prodPhotoBase64');
+    if (item.photo) {
+        document.getElementById('prodPhotoBase64').value = item.photo;
         const imgPreview = document.getElementById('prodPhotoImg');
-        const previewContainer = document.getElementById('prodPhotoPreview');
-
-        if (photoBase64Input) photoBase64Input.value = compressedBase64;
-        if (imgPreview) imgPreview.src = compressedBase64;
-        if (previewContainer) {
-            previewContainer.classList.remove('hidden');
-            previewContainer.classList.add('flex');
-        }
-    } catch (error) {
-        console.error('Gagal memproses foto:', error);
-        alert('Foto gagal diproses dari HP: ' + error.message);
+        if (imgPreview) imgPreview.src = item.photo;
+        document.getElementById('prodPhotoPreview')?.classList.remove('hidden');
     }
-}
 
-// ==========================================
-// SIMPAN / UPDATE DATA PRODUKSI VIA MONGODB API
-// ==========================================
-async function simpanDataProduksiManual(e) {
-    if (e) e.preventDefault();
-    
-    const submitBtn = document.querySelector('#prodForm button[type="submit"]');
-    if (submitBtn) submitBtn.disabled = true;
-
-    try {
-        let customer = document.getElementById('prodCustomerSelect')?.value || '';
-        let part = document.getElementById('prodPartSelect')?.value || '';
-        let date = document.getElementById('prodDate')?.value;
-        let shift = document.getElementById('prodShift')?.value;
-        let pic = document.getElementById('prodPic')?.value;
-
-        if (!date || !shift || !pic || !customer || !part) {
-            alert('Mohon lengkapi data utama terlebih dahulu!');
-            if (submitBtn) submitBtn.disabled = false;
-            return;
-        }
-
-        const editId = document.getElementById('prodEditIndex')?.value || "-1";
-        let photoBase64 = document.getElementById('prodPhotoBase64')?.value || '';
-
-        if (editId !== "-1" && !photoBase64) {
-            const existingItem = cachedProdData.find(item => item._id === editId);
-            if (existingItem) photoBase64 = existingItem.photo || '';
-        }
-
-        const dataItem = {
-            date: date,
-            shift: shift,
-            pic: pic,
-            customer: customer,
-            part: part,
-            cromating: document.getElementById('prodCromating')?.value || '',
-            qty: document.getElementById('prodQty')?.value || '0',
-            barrel: document.getElementById('prodBarrel')?.value || '1',
-            ampr: document.getElementById('prodAmpr')?.value || '0',
-            timeIn: document.getElementById('prodTimeIn')?.value || '',
-            timeOut: document.getElementById('prodTimeOut')?.value || '',
-            additive: document.getElementById('prodAdditive')?.value || '',
-            note: document.getElementById('prodNote')?.value || '',
-            photo: photoBase64
-        };
-
-        const method = editId !== "-1" ? 'PUT' : 'POST';
-        const payload = editId !== "-1" ? { id: editId, ...dataItem } : dataItem;
-
-        const response = await fetch('/api/produksi', {
-            method: method,
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
-
-        if (!response.ok) {
-            const errData = await response.json().catch(() => ({}));
-            throw new Error(errData.message || `HTTP Server Error (${response.status})`);
-        }
-
-        resetProdForm();
-        await renderProdTable();
-        alert('Data produksi berhasil tersimpan di Database MongoDB!');
-    } catch (err) {
-        console.error("Error saving:", err);
-        alert("Gagal Menyimpan ke Database MongoDB:\n" + err.message);
-    } finally {
-        if (submitBtn) submitBtn.disabled = false;
-    }
-}
-
-// ==========================================
-// RENDER TABEL PRODUKSI DARI MONGODB
-// ==========================================
-async function renderProdTable() {
-    const tbody = document.getElementById('prodTableBody');
-    if (!tbody) return;
-
-    const selectedDate = document.getElementById('prodDate')?.value;
-
-    try {
-        const response = await fetch('/api/produksi');
-        if (!response.ok) throw new Error(`HTTP Error Status: ${response.status}`);
-
-        cachedProdData = await response.json();
-        let filteredData = cachedProdData.filter(item => item.date === selectedDate);
-
-        let totalKg = 0;
-        let totalAmpr = 0;
-
-        tbody.innerHTML = '';
-
-        if (filteredData.length === 0) {
-            tbody.innerHTML = `
-                <tr>
-                    <td colspan="14" class="py-6 text-center text-slate-400 font-medium italic">
-                        Tidak ada laporan Produksi untuk tanggal ${selectedDate}
-                    </td>
-                </tr>
-            `;
-        } else {
-            filteredData.forEach((item) => {
-                totalKg += parseFloat(String(item.qty || '0').replace(',', '.')) || 0;
-                totalAmpr += parseFloat(String(item.ampr || '0').replace(',', '.')) || 0;
-
-                const photoHtml = item.photo ? `
-                    <a href="${item.photo}" target="_blank">
-                        <img src="${item.photo}" class="h-10 w-10 object-cover rounded-lg mx-auto border border-slate-200">
-                    </a>
-                ` : `<span class="text-slate-400 italic">-</span>`;
-
-                let tr = document.createElement('tr');
-                tr.className = "hover:bg-slate-50 transition";
-                tr.innerHTML = `
-                    <td class="py-3 px-4 text-center">
-                        <button type="button" onclick="editProd('${item._id}')" class="p-1.5 bg-amber-100 text-amber-700 rounded-lg mr-1"><i class="fa-solid fa-pen text-xs"></i></button>
-                        <button type="button" onclick="deleteProd('${item._id}')" class="p-1.5 bg-red-100 text-red-700 rounded-lg"><i class="fa-solid fa-trash text-xs"></i></button>
-                    </td>
-                    <td class="py-3 px-4">${item.date}</td>
-                    <td class="py-3 px-4 font-semibold text-slate-700">${item.shift}</td>
-                    <td class="py-3 px-4 font-semibold">${item.pic}</td>
-                    <td class="py-3 px-4">${item.customer}</td>
-                    <td class="py-3 px-4 font-semibold text-slate-900">${item.part}</td>
-                    <td class="py-3 px-4 text-slate-500">${item.cromating}</td>
-                    <td class="py-3 px-4 text-right font-medium">${item.qty}</td>
-                    <td class="py-3 px-4 text-center">${item.barrel}</td>
-                    <td class="py-3 px-4 text-center">${item.ampr}</td>
-                    <td class="py-3 px-4 text-center">${item.timeIn}</td>
-                    <td class="py-3 px-4 text-center">${item.timeOut}</td>
-                    <td class="py-3 px-4 text-center">${photoHtml}</td>
-                    <td class="py-3 px-4 text-slate-600">${item.note}</td>
-                `;
-                tbody.appendChild(tr);
-            });
-        }
-
-        if (document.getElementById('prodTotalKg')) document.getElementById('prodTotalKg').textContent = totalKg.toFixed(1) + " Kg";
-        if (document.getElementById('prodTotalBarrel')) document.getElementById('prodTotalBarrel').textContent = filteredData.length + " Barel";
-        if (document.getElementById('prodTotalAmpr')) document.getElementById('prodTotalAmpr').textContent = totalAmpr;
-
-    } catch (err) {
-        console.error("Gagal Render Tabel:", err);
-    }
-}
-
-// ==========================================
-// RESET FORM & DELETE PRODUKSI
-// ==========================================
-function resetProdForm() {
-    document.getElementById('prodForm').reset();
-    document.getElementById('prodEditIndex').value = "-1";
-    document.getElementById('prodPhotoPreview')?.classList.add('hidden');
-    document.getElementById('prodPhotoBase64').value = '';
-    const today = new Date().toISOString().split('T')[0];
-    document.getElementById('prodDate').value = today;
+    document.getElementById('prodEditBadge')?.classList.remove('hidden');
+    document.getElementById('btnSaveProdText').textContent = "Perbarui Data Produksi";
 }
 
 async function deleteProd(id) {
-    if (confirm("Apakah Anda yakin ingin menghapus data ini dari MongoDB?")) {
-        try {
-            const response = await fetch(`/api/produksi?id=${id}`, { method: 'DELETE' });
-            if (!response.ok) throw new Error("Gagal menghapus data di server");
-            await renderProdTable();
-        } catch (err) {
-            alert(err.message);
-        }
+    if (confirm("Yakin hapus data Produksi ini?")) {
+        await fetch(`/api/produksi/${id}`, { method: 'DELETE' });
+        await fetchProdData();
     }
 }
+
+function resetProdForm() {
+    document.getElementById('prodForm').reset();
+    document.getElementById('prodEditIndex').value = "-1";
+    document.getElementById('prodEditBadge')?.classList.add('hidden');
+    document.getElementById('btnSaveProdText').textContent = "Simpan Data Produksi";
+    document.getElementById('prodPhotoPreview')?.classList.add('hidden');
+    document.getElementById('prodPhotoBase64').value = '';
+}
+function clearPhotoPreview(previewContainerId, base64InputId, fileInputId, imgElementId) {
+    // Sembunyikan kontainer preview
+    const container = document.getElementById(previewContainerId);
+    if (container) container.classList.add('hidden');
+
+    // Kosongkan nilai input hidden & input file
+    const base64Input = document.getElementById(base64InputId);
+    if (base64Input) base64Input.value = '';
+
+    const fileInput = document.getElementById(fileInputId);
+    if (fileInput) fileInput.value = '';
+
+    // Reset elemen img
+    const imgElement = document.getElementById(imgElementId);
+    if (imgElement) imgElement.src = '';
 }

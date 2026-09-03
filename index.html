@@ -274,7 +274,7 @@
                                 <input type="file" id="qcPhoto" accept="image/*" class="hidden" onchange="handleGalleryPhoto(this, 'qc')">
                                 <input type="hidden" id="qcPhotoBase64" value="">
                                 <div id="qcPhotoPreview" class="hidden items-center gap-2 bg-slate-50 border border-slate-200 p-1 rounded-xl">
-                                    <img src="" alt="Preview Label QC" class="w-9 h-9 object-cover rounded-lg">
+                                <img id="qcPhotoImg" src="" alt="Preview Label QC" class="w-9 h-9 object-cover rounded-lg">
                                     <button type="button" onclick="clearPhotoPreview('qcPhotoPreview', 'qcPhotoBase64')" class="p-1 text-red-500 hover:text-red-700" title="Hapus Foto">
                                         <i class="fa-solid fa-trash text-xs"></i>
                                     </button>
@@ -362,7 +362,8 @@
 
                     <form id="prodForm" class="p-4 sm:p-6 grid grid-cols-2 gap-3 sm:gap-4 items-start">
                         <input type="hidden" id="prodEditIndex" value="-1">
-
+                        <input type="hidden" id="prodPhotoBase64" value="">
+                        <input type="hidden" id="prodAdditive" value=""> <!-
                         <div class="space-y-1.5">
                             <label for="prodDate" class="block text-[11px] font-bold uppercase tracking-wider text-slate-600">Tanggal</label>
                             <input type="date" id="prodDate" required class="w-full text-xs sm:text-sm p-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-red-500/35 transition shadow-sm font-medium">
@@ -446,7 +447,7 @@
                                 <input type="file" id="prodPhoto" accept="image/*" class="hidden" onchange="handleGalleryPhoto(this, 'prod')">
                                 <input type="hidden" id="prodPhotoBase64" value="">
                                 <div id="prodPhotoPreview" class="hidden items-center gap-2 bg-slate-50 border border-slate-200 p-1 rounded-xl">
-                                    <img src="" alt="Preview Label Prod" class="w-9 h-9 object-cover rounded-lg">
+                                <img id="prodPhotoImg" src="" alt="Preview Label Prod" class="w-9 h-9 object-cover rounded-lg">
                                     <button type="button" onclick="clearPhotoPreview('prodPhotoPreview', 'prodPhotoBase64')" class="p-1 text-red-500 hover:text-red-700" title="Hapus Foto">
                                         <i class="fa-solid fa-trash text-xs"></i>
                                     </button>
