@@ -1,0 +1,103 @@
+/* ==========================================
+   1. GLOBAL & MOBILE-FIRST STYLING
+   ========================================== */
+
+html {
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 #f1f5f9;
+    -webkit-tap-highlight-color: transparent;
+}
+
+::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+}
+
+::-webkit-scrollbar-track {
+    background: #f1f5f9;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+}
+
+body {
+    background-color: #f8fafc;
+    color: #1e293b;
+    font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    touch-action: manipulation;
+}
+
+/* Animasi Fade In Sederhana */
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+    animation: fadeIn 0.25s ease-out forwards;
+}
+
+/* Optimasi input mobile (mencegah auto-zoom di iOS/Safari) */
+@media (max-width: 640px) {
+    input[type="text"],
+    input[type="number"],
+    input[type="date"],
+    input[type="month"],
+    select {
+        font-size: 14px !important;
+    }
+}
+
+/* ==========================================
+   2. MODAL & OVERLAY ENHANCEMENTS
+   ========================================== */
+
+#riwayatQcModal,
+#riwayatProdModal {
+    background-color: rgba(15, 23, 42, 0.65);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+}
+
+main input:focus,
+main select:focus,
+#riwayatQcDateFilter:focus,
+#riwayatQcMonthFilter:focus,
+#riwayatProdDateFilter:focus,
+#riwayatProdMonthFilter:focus {
+    border-color: #dc2626 !important;
+    box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.15) !important;
+    background-color: #ffffff !important;
+    outline: none;
+}
+
+/* ==========================================
+   3. TABLE & TOUCH TARGET ENHANCEMENTS
+   ========================================== */
+
+table tbody tr {
+    transition: background-color 0.15s ease;
+}
+
+table tbody tr:hover {
+    background-color: #f1f5f9;
+}
+
+button, input, select {
+    transition: all 0.15s ease-in-out;
+}
+
+/* Memastikan tombol aksi mudah ditekan pada mobile */
+table button {
+    min-width: 28px;
+    min-height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}

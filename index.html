@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="id-ID">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PT. Megumi Brayan Indonesia - Produksi & QC System</title>
+
+    <!-- External Libraries -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Ganti xlsx.full.min.js dengan xlsx-js-style agar mendukung warna & border sel -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+</head>
+<body class="bg-slate-100 text-slate-800 antialiased font-sans min-h-screen flex flex-col selection:bg-red-600 selection:text-white">
+
+    <!-- Modal Kamera Live WebRTC -->
+    <div id="cameraModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-md hidden" role="dialog" aria-modal="true">
+        <div class="relative w-full max-w-md bg-white rounded-3xl p-5 shadow-2xl border border-slate-200 flex flex-col items-center gap-4">
+            <div class="flex items-center justify-between w-full border-b border-slate-100 pb-3">
+                <h3 class="font-bold text-slate-800 text-sm flex items-center gap-2">
+                    <i class="fa-solid fa-camera text-red-600"></i> Ambil Foto Label Live
+                </h3>
+                <button type="button" onclick="closeLiveCamera()" class="p-1 text-slate-400 hover:text-slate-700 rounded-lg">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+
+            <!-- Video Stream Container -->
+            <div class="relative w-full aspect-square bg-black rounded-2xl overflow-hidden flex items-center justify-center shadow-inner">
+                <video id="cameraVideo" autoplay playsinline class="w-full h-full object-cover"></video>
+                <canvas id="cameraCanvas" class="hidden"></canvas>
+            </div>
+
+            <!-- Kamera Actions -->
+            <div class="flex items-center gap-3 w-full">
+                <button type="button" onclick="closeLiveCamera()" class="w-1/2 py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xs rounded-xl transition">
+                    Batal
+                </button>
+                <button type="button" onclick="captureLivePhoto()" class="w-1/2 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-xl shadow-md shadow-red-600/30 transition flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-circle-dot"></i> Jepret Foto
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Riwayat QC -->
+    <div id="riwayatQcModal" class="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-900/60 backdrop-blur-md hidden" role="dialog" aria-modal="true" aria-labelledby="riwayatQcModalTitle">
+        <div class="relative w-full max-w-5xl bg-white rounded-3xl p-5 sm:p-7 shadow-2xl border border-slate-200 overflow-hidden max-h-[92vh] flex flex-col">
+            
+            <div class="flex items-center justify-between border-b border-slate-100 pb-4 mb-4">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-2xl bg-red-100 border border-red-200 flex items-center justify-center text-red-600 shadow-sm flex-shrink-0">
+                        <i class="fa-solid fa-clipboard-check text-lg"></i>
+                    </div>
+                    <div>
+                        <h2 id="riwayatQcModalTitle" class="text-base sm:text-lg font-black text-slate-900 tracking-wide uppercase">ARSIP RIWAYAT QC</h2>
+                        <p class="text-xs text-slate-500">PILIH TANGGAL ATAU BULAN UNTUK MELIHAT DAN MENDOWNLOAD REKAP LAPORAN QC</p>
+                    </div>
+                </div>
+                <button type="button" onclick="closeRiwayatModal('qc')" aria-label="Tutup modal" class="p-2 text-slate-400 hover:text-slate-700 rounded-xl hover:bg-slate-100 transition">
+                    <i class="fa-solid fa-xmark text-xl"></i>
+                </button>
+            </div>
+
+            <div class="flex flex-col gap-3 mb-4">
+                <div id="dynamicExcelQcContainer" class="hidden items-center justify-between gap-2 bg-emerald-50 border border-emerald-200 p-2.5 rounded-2xl">
+                    <span id="dynamicExcelQcLabel" class="text-xs font-bold text-emerald-800 px-2">Rekap Data Ditemukan</span>
+                    <button type="button" onclick="exportMonthlyExcel('qc')" class="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-4 py-2 rounded-xl transition shadow-sm border border-emerald-500">
+                        <i class="fa-solid fa-file-excel"></i> <span id="dynamicExcelQcBtnText">Unduh Rekap Excel QC</span>
+                    </button>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 bg-slate-50 p-3 rounded-2xl border border-slate-200">
+                    <div class="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-slate-300">
+                        <i class="fa-regular fa-calendar text-slate-400 text-xs"></i>
+                        <input type="date" id="riwayatQcDateFilter" onchange="handleDateFilterChange('qc')" class="w-full text-xs bg-transparent font-medium focus:outline-none">
+                    </div>
+                    
+                    <div class="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-slate-300">
+                        <i class="fa-solid fa-magnifying-glass text-slate-400 text-xs"></i>
+                        <input type="text" id="riwayatQcMonthFilter" placeholder="Cari bulan" oninput="handleMonthFilterChange('qc')" class="w-full text-xs bg-transparent font-medium focus:outline-none">
+                    </div>
+
+                    <div class="flex items-center gap-2">
+                        <button type="button" onclick="resetRiwayatFilter('qc')" class="w-full py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5">
+                            <i class="fa-solid fa-rotate-left"></i> Reset Filter
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="riwayatQcContainer" class="overflow-y-auto flex-grow pr-1 space-y-3"></div>
+        </div>
+    </div>
+
+    <!-- Modal Riwayat Produksi -->
+    <div id="riwayatProdModal" class="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-900/60 backdrop-blur-md hidden" role="dialog" aria-modal="true" aria-labelledby="riwayatProdModalTitle">
+        <div class="relative w-full max-w-5xl bg-white rounded-3xl p-5 sm:p-7 shadow-2xl border border-slate-200 overflow-hidden max-h-[92vh] flex flex-col">
+            
+            <div class="flex items-center justify-between border-b border-slate-100 pb-4 mb-4">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-2xl bg-red-100 border border-red-200 flex items-center justify-center text-red-600 shadow-sm flex-shrink-0">
+                        <i class="fa-solid fa-industry text-lg"></i>
+                    </div>
+                    <div>
+                        <h2 id="riwayatProdModalTitle" class="text-base sm:text-lg font-black text-slate-900 tracking-wide uppercase">ARSIP RIWAYAT PRODUKSI</h2>
+                        <p class="text-xs text-slate-500">PILIH TANGGAL ATAU BULAN UNTUK MELIHAT DAN  MENDOWNLOAD REKAP LAPORAN PRODUKSI</p>
+                    </div>
+                </div>
+                <button type="button" onclick="closeRiwayatModal('produksi')" aria-label="Tutup modal" class="p-2 text-slate-400 hover:text-slate-700 rounded-xl hover:bg-slate-100 transition">
+                    <i class="fa-solid fa-xmark text-xl"></i>
+                </button>
+            </div>
+
+            <div class="flex flex-col gap-3 mb-4">
+                <div id="dynamicExcelProdContainer" class="hidden items-center justify-between gap-2 bg-emerald-50 border border-emerald-200 p-2.5 rounded-2xl">
+                    <span id="dynamicExcelProdLabel" class="text-xs font-bold text-emerald-800 px-2">Rekap Data Ditemukan</span>
+                    <button type="button" onclick="exportMonthlyExcel('produksi')" class="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-4 py-2 rounded-xl transition shadow-sm border border-emerald-500">
+                        <i class="fa-solid fa-file-excel"></i> <span id="dynamicExcelProdBtnText">Unduh Rekap Excel Produksi</span>
+                    </button>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 bg-slate-50 p-3 rounded-2xl border border-slate-200">
+                    <div class="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-slate-300">
+                        <i class="fa-regular fa-calendar text-slate-400 text-xs"></i>
+                        <input type="date" id="riwayatProdDateFilter" onchange="handleDateFilterChange('produksi')" class="w-full text-xs bg-transparent font-medium focus:outline-none">
+                    </div>
+                    
+                    <div class="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-slate-300">
+                        <i class="fa-solid fa-magnifying-glass text-slate-400 text-xs"></i>
+                        <input type="text" id="riwayatProdMonthFilter" placeholder="Cari bulan" oninput="handleMonthFilterChange('produksi')" class="w-full text-xs bg-transparent font-medium focus:outline-none">
+                    </div>
+
+                    <div class="flex items-center gap-2">
+                        <button type="button" onclick="resetRiwayatFilter('produksi')" class="w-full py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5">
+                            <i class="fa-solid fa-rotate-left"></i> Reset Filter
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="riwayatProdContainer" class="overflow-y-auto flex-grow pr-1 space-y-3"></div>
+        </div>
+    </div>
+
+    <!-- Header / Navbar -->
+    <header class="bg-gradient-to-r from-red-950 via-red-900 to-black text-white sticky top-0 z-40 shadow-xl border-b border-red-900/30 backdrop-blur-md">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between gap-2">
+            <div class="flex items-center space-x-3">
+                <!-- KODE LOGO OPTIMAL & ROBUST -->
+          <div class="h-10 w-10 sm:h-12 sm:w-12 flex-shrink-0 flex items-center justify-center overflow-hidden rounded-2xl bg-slate-900/65 backdrop-blur-md p-2 border border-red-500/30 shadow-inner">
+            <img src="Logo.png" alt="MBI Logo" class="h-full w-auto object-contain drop-shadow">
+            </div>
+                <div class="border-l-2 border-red-500/30 pl-3 py-0.5">
+                    <h1 class="font-black text-white text-xs sm:text-base md:text-lg tracking-wider uppercase leading-tight drop-shadow-sm">
+                        PT. MEGUMI BRAYAN INDONESIA
+                    </h1>
+                    <p class="text-[10px] sm:text-xs text-red-300 font-bold uppercase tracking-widest flex items-center gap-1.5 mt-0.5">
+                        <span class="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                        System input laporan harian
+                    </p>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-2">
+                <div class="hidden md:flex items-center gap-2 bg-slate-900/80 p-1.5 rounded-2xl border border-red-500/30">
+                    <button type="button" onclick="switchTab('qc')" id="navQcBtnDesktop" class="px-4 py-2 rounded-xl font-bold text-xs transition-all bg-red-600 text-white shadow-md">
+                        <i class="fa-solid fa-clipboard-check mr-1.5"></i> DASHBOARD QC
+                    </button>
+                   <button type="button" onclick="switchTab('produksi')" id="navProdBtnDesktop" class="px-4 py-2 rounded-xl font-bold text-xs transition-all text-slate-300 hover:text-white inline-block">
+                        <i class="fa-solid fa-industry mr-1.5"></i> DASHBOARD PRODUKSI
+                    </button>
+                </div>
+
+                <div class="relative md:hidden">
+                    <button type="button" onclick="toggleMobileMenu()" class="p-3 bg-red-600/30 hover:bg-red-600 text-red-200 hover:text-white rounded-xl border border-red-500/40 transition active:scale-95 flex items-center justify-center shadow" title="Menu Navigasi" aria-label="Buka Menu Navigasi">
+                        <i class="fa-solid fa-bars text-lg"></i>
+                    </button>
+
+                    <div id="mobileMenu" class="hidden absolute right-0 mt-2 w-52 bg-slate-900 border border-red-500/30 rounded-2xl shadow-2xl p-2 z-50 space-y-1">
+                        <button type="button" onclick="switchTab('qc'); toggleMobileMenu();" id="navQcBtnMobile" class="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl font-bold text-xs transition-all bg-red-600 text-white text-left shadow-md">
+                            <i class="fa-solid fa-clipboard-check w-4"></i> Dasbor QC
+                        </button>
+                        <button type="button" onclick="switchTab('produksi')" class="px-4 py-2 rounded-xl font-bold text-xs bg-red-800/50 hover:bg-red-800 text-white transition flex items-center gap-2">
+                        <i class="fa-solid fa-industry"></i> DASHBOARD PRODUKSI
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content Container -->
+    <div class="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-6 w-full flex-grow flex flex-col gap-6">
+        <main class="w-full space-y-8">
+
+            <!-- QC View -->
+            <div id="qcView" class="space-y-6">
+                <div class="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div class="px-5 py-4 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+                        <div class="flex items-center gap-2.5">
+                            <div class="w-8 h-8 rounded-xl bg-red-100 border border-red-200 flex items-center justify-center text-red-600 shadow-sm">
+                                <i class="fa-solid fa-pen-to-square text-sm"></i>
+                            </div>
+                            <h2 class="text-xs sm:text-base font-bold text-slate-800 tracking-tight">FORM LAPORAN QC</h2>
+                        </div>
+                        <span id="qcEditBadge" class="hidden text-[11px] bg-amber-100 text-amber-800 border border-amber-300 px-3 py-1 rounded-full font-bold animate-pulse">Mode Edit Data</span>
+                    </div>
+
+                    <form id="qcForm" class="p-4 sm:p-6 grid grid-cols-2 gap-3 sm:gap-4 items-start">
+                        <input type="hidden" id="qcEditIndex" value="-1">
+
+                        <div class="space-y-1.5">
+                            <label for="qcDate" class="block text-[11px] font-bold uppercase tracking-wider text-slate-600">Tanggal</label>
+                            <input type="date" id="qcDate" required class="w-full text-xs sm:text-sm p-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-red-500/35 transition shadow-sm font-medium">
+                        </div>
+
+                        <div class="space-y-1.5">
+                            <label for="qcPic" class="block text-[11px] font-bold uppercase tracking-wider text-slate-600">PIC Inspector</label>
+                            <input type="text" id="qcPic" placeholder="Nama Inspector" required class="w-full text-xs sm:text-sm p-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-red-500/35 transition shadow-sm font-medium">
+                        </div>
+
+                        <div class="space-y-1.5">
+                            <label for="qcCustomerSelect" class="block text-[11px] font-bold uppercase tracking-wider text-slate-600">Customer</label>
+                            <select id="qcCustomerSelect" onchange="onCustomerChange('qcCustomerSelect', 'qcPartSelect', 'qcSpec')" class="w-full text-xs sm:text-sm p-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-red-500/35 transition shadow-sm font-medium" required>
+                                <option value="">PT / CUSTOMER</option>
+                            </select>
+                            <div id="qcCustomerCustomContainer" class="hidden mt-2">
+                                <input type="text" id="qcCustomerCustom" placeholder="Nama Customer Baru" class="w-full text-xs p-2.5 border border-amber-400 bg-amber-50/50 rounded-xl focus:bg-white focus:outline-none shadow-sm">
+                            </div>
+                        </div>
+
+                        <div class="space-y-1.5">
+                            <label for="qcPartSelect" class="block text-[11px] font-bold uppercase tracking-wider text-slate-600">Nama Part</label>
+                            <select id="qcPartSelect" onchange="onPartChange('qcCustomerSelect', 'qcPartSelect', 'qcSpec')" class="w-full text-xs sm:text-sm p-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-red-500/35 transition shadow-sm font-medium" required>
+                                <option value="">Pilih Nama Part</option>
+                            </select>
+                            <div id="qcPartCustomContainer" class="hidden mt-2">
+                                <input type="text" id="qcPartCustom" placeholder="Nama Part Baru" class="w-full text-xs p-2.5 border border-amber-400 bg-amber-50/50 rounded-xl focus:bg-white focus:outline-none shadow-sm">
+                            </div>
+                        </div>
+
+                        <div class="space-y-1.5">
+                            <label for="qcSpec" class="block text-[11px] font-bold uppercase tracking-wider text-slate-600">Spec / Finishing</label>
+                            <input type="text" id="qcSpec" placeholder="Otomatis terisi / Spec Baru" class="w-full text-xs sm:text-sm p-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-red-500/35 transition shadow-sm font-medium">
+                        </div>
+
+                        <div class="space-y-1.5">
+                            <label for="qcQtyKg" class="block text-[11px] font-bold uppercase tracking-wider text-slate-600">QTY Total (Kg)</label>
+                            <input type="number" step="any" id="qcQtyKg" placeholder="60,4" class="w-full text-xs sm:text-sm p-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-red-500/35 transition shadow-sm font-medium">
+                        </div>
+
+                        <div class="space-y-1.5">
+                            <label for="qcOkPcs" class="block text-[11px] font-bold uppercase tracking-wider text-emerald-700">Qty OK (PCS)</label>
+                            <input type="number" id="qcOkPcs" placeholder="0 PCS" required min="0" class="w-full text-xs sm:text-sm p-2.5 border border-emerald-300 bg-emerald-50/50 rounded-xl font-bold text-emerald-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/35 transition shadow-sm">
+                        </div>
+
+                        <div class="space-y-1.5">
+                            <label for="qcNgPcs" class="block text-[11px] font-bold uppercase tracking-wider text-red-700">Qty NG (PCS)</label>
+                            <input type="number" id="qcNgPcs" placeholder="0 PCS" required min="0" class="w-full text-xs sm:text-sm p-2.5 border border-red-300 bg-red-50/50 rounded-xl font-bold text-red-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-red-500/35 transition shadow-sm">
+                        </div>
+
+                        <!-- Fitur Kamera Foto Label QC -->
+                        <div class="col-span-2 space-y-1.5">
+                            <label class="block text-[11px] font-bold uppercase tracking-wider text-slate-600">Foto Label QC (Kamera / File)</label>
+                            <div class="flex items-center gap-3 flex-wrap">
+                                <button type="button" onclick="openLiveCamera('qc')" class="flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold px-4 py-2.5 rounded-xl border border-slate-700 shadow-sm transition">
+                                    <i class="fa-solid fa-camera text-red-400"></i> Ambil Foto Label
+                                </button>
+                                <button type="button" onclick="chooseGalleryPhoto('qc')" class="flex items-center justify-center gap-2 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold px-4 py-2.5 rounded-xl border border-slate-300 shadow-sm transition">
+                                    <i class="fa-solid fa-image text-red-500"></i> Galeri
+                                </button>
+                                <input type="file" id="qcPhoto" accept="image/*" class="hidden" onchange="handleGalleryPhoto(this, 'qc')">
+                                <input type="hidden" id="qcPhotoBase64" value="">
+                                <div id="qcPhotoPreview" class="hidden items-center gap-2 bg-slate-50 border border-slate-200 p-1 rounded-xl">
+                                    <img src="" alt="Preview Label QC" class="w-9 h-9 object-cover rounded-lg">
+                                    <button type="button" onclick="clearPhotoPreview('qcPhotoPreview', 'qcPhotoBase64')" class="p-1 text-red-500 hover:text-red-700" title="Hapus Foto">
+                                        <i class="fa-solid fa-trash text-xs"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-span-2 space-y-1.5">
+                            <label for="qcNote" class="block text-[11px] font-bold uppercase tracking-wider text-slate-600">Keterangan / Kemasan</label>
+                            <input type="text" id="qcNote" placeholder="Contoh: 1 DRUM / 3 KARUNG" class="w-full text-xs sm:text-sm p-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-red-500/35 transition shadow-sm font-medium">
+                        </div>
+
+                        <div class="col-span-2 flex items-center justify-end gap-2 pt-3">
+                            <button type="button" id="btnCancelQc" onclick="cancelEditQc()" class="hidden w-full sm:w-auto bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xs px-5 py-3 rounded-xl transition-all flex items-center justify-center gap-2">
+                                <i class="fa-solid fa-xmark"></i> Batal Edit
+                            </button>
+                            <button type="submit" id="btnSaveQc" class="w-full sm:w-auto bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 active:scale-[0.98] text-white font-bold text-xs px-6 py-3 rounded-xl shadow-md shadow-red-600/30 transition-all border border-red-500 flex items-center justify-center gap-2">
+                                <i class="fa-solid fa-plus"></i> <span id="btnSaveQcText">Simpan Data QC</span>
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+                <div class="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div class="p-4 sm:p-5 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                        <div class="flex items-center gap-2.5">
+                            <div class="w-8 h-8 rounded-xl bg-red-100 border border-red-200 flex items-center justify-center text-red-600 shadow-sm">
+                                <i class="fa-solid fa-list-check text-sm"></i>
+                            </div>
+                            <div>
+                                <h3 class="text-xs sm:text-sm font-bold text-slate-800 tracking-tight">DATA LAPORAN QC HARIAN</h3>
+                                <p class="text-[10px] text-slate-500 font-medium">Fokus data tanggal terpilih pada form</p>
+                            </div>
+                        </div>
+                        <button type="button" onclick="openRiwayatModal('qc')" class="w-full sm:w-auto bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs px-4 py-2.5 rounded-xl transition flex items-center justify-center gap-2 shadow-sm border border-slate-700">
+                            <i class="fa-solid fa-clock-rotate-left text-red-400"></i> Riwayat QC & Export Excel
+                        </button>
+                    </div>
+
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs whitespace-nowrap">
+                            <thead class="bg-slate-50 text-slate-600 font-bold border-b border-slate-200 uppercase tracking-wider text-[11px]">
+                                <tr>
+                                    <th class="py-3.5 px-4 text-center">Aksi</th>
+                                    <th class="py-3.5 px-4">Tanggal</th>
+                                    <th class="py-3.5 px-4">PIC</th>
+                                    <th class="py-3.5 px-4">Customer</th>
+                                    <th class="py-3.5 px-4">Nama Part</th>
+                                    <th class="py-3.5 px-4">Spec</th>
+                                    <th class="py-3.5 px-4 text-center bg-emerald-50 text-emerald-800">Qty OK</th>
+                                    <th class="py-3.5 px-4 text-center bg-red-50 text-red-800">Qty NG</th>
+                                    <th class="py-3.5 px-4 text-right">QTY (Kg)</th>
+                                    <th class="py-3.5 px-4 text-center">Foto Label</th>
+                                    <th class="py-3.5 px-4">Keterangan</th>
+                                </tr>
+                            </thead>
+                            <tbody id="qcTableBody" class="divide-y divide-slate-100"></tbody>
+                            <tfoot class="bg-gradient-to-r from-red-950 via-red-900 to-slate-900 text-white font-bold border-t-2 border-red-800/40 text-xs uppercase tracking-wider">
+                                <tr>
+                                    <td colspan="6" class="py-3.5 px-4 text-right text-red-200">TOTAL HARIAN:</td>
+                                    <td id="qcTotalOk" class="py-3.5 px-4 text-center text-emerald-400 font-extrabold text-sm">0 PCS</td>
+                                    <td id="qcTotalNg" class="px-3 py-2 text-red-600 font-black">0 PCS</td>
+                                    <td id="qcTotalKg" class="py-3.5 px-4 text-right text-amber-300 font-extrabold text-sm">0,0 Kg</td>
+                                    <td class="py-3.5 px-4"></td>
+                                    <td class="py-3.5 px-4"></td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Produksi View -->
+            <div id="produksiView" class="hidden space-y-6">
+                <div class="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div class="px-5 py-4 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+                        <div class="flex items-center gap-2.5">
+                            <div class="w-8 h-8 rounded-xl bg-red-100 border border-red-200 flex items-center justify-center text-red-600 shadow-sm">
+                                <i class="fa-solid fa-gears text-sm"></i>
+                            </div>
+                            <h2 class="text-xs sm:text-base font-bold text-slate-800 tracking-tight">FORM LAPORAN PRODUKSI</h2>
+                        </div>
+                        <span id="prodEditBadge" class="hidden text-[11px] bg-amber-100 text-amber-800 border border-amber-300 px-3 py-1 rounded-full font-bold animate-pulse">Mode Edit Data</span>
+                    </div>
+
+                    <form id="prodForm" class="p-4 sm:p-6 grid grid-cols-2 gap-3 sm:gap-4 items-start">
+                        <input type="hidden" id="prodEditIndex" value="-1">
+
+                        <div class="space-y-1.5">
+                            <label for="prodDate" class="block text-[11px] font-bold uppercase tracking-wider text-slate-600">Tanggal</label>
+                            <input type="date" id="prodDate" required class="w-full text-xs sm:text-sm p-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-red-500/35 transition shadow-sm font-medium">
+                        </div>
+
+                        <div class="space-y-1.5">
+                            <label for="prodShift" class="block text-[11px] font-bold uppercase tracking-wider text-slate-600">Shift</label>
+                            <select id="prodShift" class="w-full text-xs sm:text-sm p-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-red-500/35 transition shadow-sm font-medium">
+                                <option value="Shift 1">SHIFT 1</option>
+                                <option value="Shift 2">SHIFT 2</option>
+                                <option value="Shift 3">SHIFT 3</option>
+                            </select>
+                        </div>
+
+                        <div class="space-y-1.5">
+                            <label for="prodPic" class="block text-[11px] font-bold uppercase tracking-wider text-slate-600">Operator PIC</label>
+                            <input type="text" id="prodPic" placeholder="Nama Operator" required class="w-full text-xs sm:text-sm p-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-red-500/35 transition shadow-sm font-medium">
+                        </div>
+
+                        <div class="space-y-1.5">
+                            <label for="prodCustomerSelect" class="block text-[11px] font-bold uppercase tracking-wider text-slate-600">Customer / PT</label>
+                            <select id="prodCustomerSelect" onchange="onCustomerChange('prodCustomerSelect', 'prodPartSelect', 'prodCromating')" class="w-full text-xs sm:text-sm p-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-red-500/35 transition shadow-sm font-medium" required>
+                                <option value="">PT / CUSTOMER</option>
+                            </select>
+                            <div id="prodCustomerCustomContainer" class="hidden mt-2">
+                                <input type="text" id="prodCustomerCustom" placeholder="Nama Customer Baru" class="w-full text-xs p-2.5 border border-amber-400 bg-amber-50/50 rounded-xl focus:bg-white focus:outline-none shadow-sm">
+                            </div>
+                        </div>
+
+                        <div class="space-y-1.5">
+                            <label for="prodPartSelect" class="block text-[11px] font-bold uppercase tracking-wider text-slate-600">Part Name</label>
+                            <select id="prodPartSelect" onchange="onPartChange('prodCustomerSelect', 'prodPartSelect', 'prodCromating')" class="w-full text-xs sm:text-sm p-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-red-500/35 transition shadow-sm font-medium" required>
+                                <option value="">Pilih Nama Part</option>
+                            </select>
+                            <div id="prodPartCustomContainer" class="hidden mt-2">
+                                <input type="text" id="prodPartCustom" placeholder="Part Name Baru" class="w-full text-xs p-2.5 border border-amber-400 bg-amber-50/50 rounded-xl focus:bg-white focus:outline-none shadow-sm">
+                            </div>
+                        </div>
+
+                        <div class="space-y-1.5">
+                            <label for="prodCromating" class="block text-[11px] font-bold uppercase tracking-wider text-slate-600">Cromating</label>
+                            <input type="text" id="prodCromating" placeholder="Otomatis terisi / Spek Baru" class="w-full text-xs sm:text-sm p-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-red-500/35 transition shadow-sm font-medium">
+                        </div>
+
+                        <div class="space-y-1.5">
+                            <label for="prodQty" class="block text-[11px] font-bold uppercase tracking-wider text-slate-600">QTY (KG)</label>
+                            <input type="number" step="any" id="prodQty" placeholder="20" required class="w-full text-xs sm:text-sm p-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-red-500/35 transition shadow-sm font-medium">
+                        </div>
+
+                        <div class="space-y-1.5">
+                            <label for="prodBarrel" class="block text-[11px] font-bold uppercase tracking-wider text-slate-600">No. Barrel</label>
+                            <input type="text" id="prodBarrel" placeholder="1/3" required class="w-full text-xs sm:text-sm p-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-red-500/35 transition shadow-sm font-medium">
+                        </div>
+
+                        <div class="space-y-1.5">
+                            <label for="prodAmpr" class="block text-[11px] font-bold uppercase tracking-wider text-slate-600">Ampere (AMPR)</label>
+                            <input type="number" id="prodAmpr" placeholder="180" class="w-full text-xs sm:text-sm p-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-red-500/35 transition shadow-sm font-medium">
+                        </div>
+
+                        <div class="space-y-1.5">
+                            <label for="prodTimeIn" class="block text-[11px] font-bold uppercase tracking-wider text-slate-600">Waktu IN</label>
+                            <input type="time" id="prodTimeIn" class="w-full text-xs sm:text-sm p-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-red-500/35 transition shadow-sm font-medium">
+                        </div>
+
+                        <div class="space-y-1.5">
+                            <label for="prodTimeOut" class="block text-[11px] font-bold uppercase tracking-wider text-slate-600">Waktu OUT</label>
+                            <input type="time" id="prodTimeOut" class="w-full text-xs sm:text-sm p-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-red-500/35 transition shadow-sm font-medium">
+                        </div>
+                        
+
+                        <!-- Fitur Kamera Foto Label Produksi -->
+                        <div class="col-span-2 space-y-1.5">
+                            <label class="block text-[11px] font-bold uppercase tracking-wider text-slate-600">Foto Label / Proses (Kamera Live)</label>
+                            <div class="flex items-center gap-3 flex-wrap">
+                                <button type="button" onclick="openLiveCamera('prod')" class="flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold px-4 py-2.5 rounded-xl border border-slate-700 shadow-sm transition">
+                                    <i class="fa-solid fa-camera text-red-400"></i> Ambil Foto Label
+                                </button>
+                                <button type="button" onclick="chooseGalleryPhoto('prod')" class="flex items-center justify-center gap-2 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold px-4 py-2.5 rounded-xl border border-slate-300 shadow-sm transition">
+                                    <i class="fa-solid fa-image text-red-500"></i> Galeri
+                                </button>
+                                <input type="file" id="prodPhoto" accept="image/*" class="hidden" onchange="handleGalleryPhoto(this, 'prod')">
+                                <input type="hidden" id="prodPhotoBase64" value="">
+                                <div id="prodPhotoPreview" class="hidden items-center gap-2 bg-slate-50 border border-slate-200 p-1 rounded-xl">
+                                    <img src="" alt="Preview Label Prod" class="w-9 h-9 object-cover rounded-lg">
+                                    <button type="button" onclick="clearPhotoPreview('prodPhotoPreview', 'prodPhotoBase64')" class="p-1 text-red-500 hover:text-red-700" title="Hapus Foto">
+                                        <i class="fa-solid fa-trash text-xs"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-span-2 space-y-1.5">
+                            <label for="prodNote" class="block text-[11px] font-bold uppercase tracking-wider text-slate-600">Keterangan Catatan</label>
+                            <input type="text" id="prodNote" placeholder="Catatan proses/produksi  (AMAN)" class="w-full text-xs sm:text-sm p-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-red-500/35 transition shadow-sm font-medium">
+                        </div>
+
+                        <div class="col-span-2 flex items-center justify-end gap-2 pt-3">
+                            <button type="button" id="btnCancelProd" onclick="cancelEditProd()" class="hidden w-full sm:w-auto bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xs px-5 py-3 rounded-xl transition-all flex items-center justify-center gap-2">
+                                <i class="fa-solid fa-xmark"></i> Batal Edit
+                            </button>
+                            <button type="submit" id="btnSaveProd" class="w-full sm:w-auto bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 active:scale-[0.98] text-white font-bold text-xs px-6 py-3 rounded-xl shadow-md shadow-red-600/30 transition-all border border-red-500 flex items-center justify-center gap-2">
+                                <i class="fa-solid fa-plus"></i> <span id="btnSaveProdText">Simpan Data Produksi</span>
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+                <div class="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div class="p-4 sm:p-5 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                        <div class="flex items-center gap-2.5">
+                            <div class="w-8 h-8 rounded-xl bg-red-100 border border-red-200 flex items-center justify-center text-red-600 shadow-sm">
+                                <i class="fa-solid fa-list-check text-sm"></i>
+                            </div>
+                            <div>
+                                <h3 class="text-xs sm:text-sm font-bold text-slate-800 tracking-tight">DATA LAPORAN PRODUKSI HARIAN</h3>
+                                <p class="text-[10px] text-slate-500 font-medium">Fokus data tanggal terpilih pada form</p>
+                            </div>
+                        </div>
+                        <button type="button" onclick="openRiwayatModal('produksi')" class="w-full sm:w-auto bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs px-4 py-2.5 rounded-xl transition flex items-center justify-center gap-2 shadow-sm border border-slate-700">
+                            <i class="fa-solid fa-clock-rotate-left text-red-400"></i> Riwayat Produksi & Export Excel
+                        </button>
+                    </div>
+
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs whitespace-nowrap">
+                            <thead class="bg-slate-50 text-slate-600 font-bold border-b border-slate-200 uppercase tracking-wider text-[11px]">
+                                <tr>
+                                    <th class="py-3.5 px-4 text-center">Aksi</th>
+                                    <th class="py-3.5 px-4">Tanggal</th>
+                                    <th class="py-3.5 px-4">Shift</th>
+                                    <th class="py-3.5 px-4">PIC</th>
+                                    <th class="py-3.5 px-4">Customer</th>
+                                    <th class="py-3.5 px-4">Part Name</th>
+                                    <th class="py-3.5 px-4">Cromating</th>
+                                    <th class="py-3.5 px-4 text-right">QTY (Kg)</th>
+                                    <th class="py-3.5 px-4 text-center">Barrel</th>
+                                    <th class="py-3.5 px-4 text-center">Ampere</th>
+                                    <th class="py-3.5 px-4 text-center">Waktu IN</th>
+                                    <th class="py-3.5 px-4 text-center">Waktu OUT</th>
+                                    <th class="py-3.5 px-4 text-center">Foto Label</th>
+                                    <th class="py-3.5 px-4">Keterangan</th>
+                                </tr>
+                            </thead>
+                            <tbody id="prodTableBody" class="divide-y divide-slate-100"></tbody>
+                            <tfoot class="bg-gradient-to-r from-red-950 via-red-900 to-slate-900 text-white font-bold border-t-2 border-red-800/40 text-xs uppercase tracking-wider">
+                            <tr>
+                            <td colspan="7" class="py-3.5 px-4 text-right text-red-200">TOTAL HARIAN PRODUKSI:</td>
+                                <td id="prodTotalKg" class="py-3.5 px-4 text-right text-amber-300 font-extrabold text-sm">0.0 Kg</td>
+                                <td id="prodTotalBarrel" class="py-3.5 px-4 text-center text-cyan-300 font-extrabold text-sm">0 Barel</td>
+                                <td id="prodTotalAmpr" class="py-3.5 px-4 text-center text-emerald-300 font-extrabold text-sm">0</td>
+                                <td colspan="4" class="py-3.5 px-4"></td>
+                            </tr>
+                        </tfoot>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <!-- Inline Script Kamera Live WebRTC -->
+    <script>
+        let currentPhotoTarget = null;
+        let mediaStream = null;
+
+        async function openLiveCamera(target) {
+            currentPhotoTarget = target;
+            const modal = document.getElementById('cameraModal');
+            const video = document.getElementById('cameraVideo');
+
+            try {
+                mediaStream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: { exact: "environment" } },
+                    audio: false
+                });
+                video.srcObject = mediaStream;
+            } catch (err) {
+                try {
+                    mediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                    video.srcObject = mediaStream;
+                } catch (e) {
+                    alert("Gagal mengakses kamera. Pastikan memberikan izin akses kamera.");
+                    return;
+                }
+            }
+
+            modal.classList.remove('hidden');
+        }
+
+        function captureLivePhoto() {
+            const video = document.getElementById('cameraVideo');
+            const canvas = document.getElementById('cameraCanvas');
+            const context = canvas.getContext('2d');
+
+            canvas.width = video.videoWidth || 640;
+            canvas.height = video.videoHeight || 480;
+
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const photoBase64 = canvas.toDataURL('image/jpeg', 0.8);
+
+            if (currentPhotoTarget === 'qc' || currentPhotoTarget === 'prod') {
+                setPhotoForTarget(currentPhotoTarget, photoBase64);
+            }
+
+            closeLiveCamera();
+        }
+
+        function closeLiveCamera() {
+            const modal = document.getElementById('cameraModal');
+            const video = document.getElementById('cameraVideo');
+
+            if (mediaStream) {
+                mediaStream.getTracks().forEach(track => track.stop());
+                mediaStream = null;
+            }
+            video.srcObject = null;
+            modal.classList.add('hidden');
+        }
+
+        function clearPhotoPreview(previewContainerId, hiddenBase64Id) {
+            const hiddenInput = document.getElementById(hiddenBase64Id);
+            if (hiddenInput) hiddenInput.value = '';
+
+            const container = document.getElementById(previewContainerId);
+            if (container) {
+                container.classList.add('hidden');
+                container.classList.remove('flex');
+                const img = container.querySelector('img');
+                if (img) img.src = '';
+            }
+
+            const galleryInputId = hiddenBase64Id === 'qcPhotoBase64' ? 'qcPhoto' : 'prodPhoto';
+            const galleryInput = document.getElementById(galleryInputId);
+            if (galleryInput) galleryInput.value = '';
+        }
+    </script>
+
+    <!-- Main Logic JS -->
+    <script src="script.js"></script>
+</body>
+</html>
